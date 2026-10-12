@@ -62,9 +62,26 @@ copy-and-run, portable from a USB stick.
       Delivered as T6a (47ee481 + fixes 0123a9d/c2add46) and T6b (ae22ba4:
       copy/duplicate/move/rename with byte progress and overwrite
       confirmation; silent-overwrite move risk caught and fixed in review).
-- [ ] T7: Incremental filter (Ctrl+Alt+letter, TC standard) + drive
-switching with Alt+F1/Alt+F2 (S6, S2); selection keys Insert,
-Space, +, -, * on main-row keys.
+- [ ] T7: selection + incremental filter (S6) + drive switching (S2).
+      Split into three work units:
+      - [x] T7a: multi-selection model in `core.Panel` + keys Insert
+            (toggle + advance), Space (toggle), `+`/`-` (mask select/deselect),
+            `*` (invert); selected rows highlighted and count shown in the
+            panel title. Selection keyed by entry name, cleared on Load.
+      - [ ] T7b: incremental filter — typing a letter in the focused panel
+            opens a small search window; the listing narrows live to entries
+            whose name contains the typed text (substring, case-insensitive);
+            Backspace edits; Esc cancels the filter and restores the full
+            listing; Enter moves the cursor to the first match and closes the
+            window. TC mode "Letter with search window" (Config / Quick search,
+            4th option of the first group — confirmed by user 2026-10-12).
+            Trigger is typing a letter, NOT Ctrl+Alt+letter as first drafted.
+      - [ ] T7c: drive/volume switching — Alt+F1 (left panel) / Alt+F2 (right
+            panel) opens a volume list; choosing one loads that root into the
+            panel. Windows: enumerate existing `A:\`..`Z:\` roots; Unix: `/`.
+      - [ ] T7a2 (deferred): wire copy/move/delete to operate on the selection
+            set (S3). Today they act on the cursor entry only; `selectedEntries`
+            in app.go is dead code.
 - [x] T6c (commit `9099946`): ItemStarted.Size in core; OperationRunner
       byte tracking; progress modal with two text bars (file% + total%) +
       ETA/speed after 2% (EMA, TC-style); ShowFormDialog extraRows (delete
@@ -85,6 +102,9 @@ Space, +, -, * on main-row keys.
       5137 lines from the un-advanced branch-point boundary). Consent could
       NOT be presented — this runtime exposes no native `question` consent UI,
       so the review start is blocked pending a compatible runtime.
+      (Superseded 2026-10-12: the consent prompt now renders after adding
+      `"question": "allow"`; the blocked RDD lineage was abandoned — see the
+      decisions log and evidence for details.)
 - [ ] T8: View/Edit + polish — F3 pager, F4 editor handoff, README final,
       optimized static build (`-ldflags="-s -w"`), smoke test on a real
       folder tree, portable-run checklist.
@@ -103,7 +123,8 @@ Space, +, -, * on main-row keys.
 | T6a fix 2 | `c2add46` (branch `tui-v0`) | User-reported F8 hang: progress modal stuck while delete completed. Root cause: NESTED QueueUpdateDraw — runner marshals OnProgress onto the UI thread and updateProgress queued again (unbuffered updates channel self-deadlock). Fixed: updateProgress mutates directly (runner is the single marshalling point). Also: dialogs now have borders+titles; Esc never quits (F10 only) confirmed as policy. Diagnosed with headless simulation-screen harness + tracing (removed after). Lessons recorded in odd/lessons-for-sibling-app.md |
 | T6a fix 3 | `11c7cfa` (branch `tui-v0`) | User feedback: modals stretched full-screen height. wrapDialog takes explicit content height; error modal capped at 20 rows with scroll. Lesson C5 added to the sibling registry |
 | T6b | `ae22ba4` (branch `tui-v0`) | F5/Shift+F5/F6/Shift+F6 wired TC-style; byte progress via QueueTotals+ItemProgress; overwrite confirmation on copy AND cross-directory move (silent Overwrite:true caught in parent review — data-loss risk). Build, vet, 85 tests, linux build observed directly. Visual smoke: pending user test |
-| T6d | `9980525` (branch `tui-v0`) | Root cause confirmed empirically (dumped dir-copy event stream: one folder-level ItemStarted, items=1, no file names). RED observed by worker (undefined `ItemFile`/`TotalFiles` build failure) → GREEN: new tests `TestCopyQueue_DirEmitsItemFile` (3 files, per-file Source/Size, TotalFiles=3) and `TestMoveQueue_FallbackForwardsItemFile` (2 files forwarded). Parent re-verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green; reviewed copy.go/operations.go diff line-by-line. Visual smoke: pending user retest |
+| T6d | `9980525` (branch `tui-v0`) | Root cause confirmed empirically (dumped dir-copy event stream: one folder-level ItemStarted, items=1, no file names). RED observed by worker (undefined `ItemFile`/`TotalFiles` build failure) → GREEN: new tests `TestCopyQueue_DirEmitsItemFile` (3 files, per-file Source/Size, TotalFiles=3) and `TestMoveQueue_FallbackForwardsItemFile` (2 files forwarded). Parent re-verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green;       reviewed copy.go/operations.go diff line-by-line. Visual smoke: pending user retest |
+| T7a | `d597e9c` (branch `tui-v0`) | Name-keyed selection model in `core.Panel` (cleared on Load), keys Insert/Space/`+`/`-`/`*`, yellow selected rows + `[N]` count in the panel title. Worker RED (undefined `ToggleSelectAtCursor`) → GREEN: 11 new core tests. Parent re-verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green; reviewed the panel.go/app.go diff line-by-line. `gofmt -l` flags `internal/core` repo-wide (CRLF, pre-existing — untouched `dirs.go` is also flagged). Visual smoke: pending user test |
 
 ## Decisions log
 
@@ -147,5 +168,18 @@ Space, +, -, * on main-row keys.
  - 2026-10-12 (partial-test feedback, round 3): tview `[-]` resets only the
    foreground — cursor-row background bled into all following rows (shrunk
    from the top as the cursor moved). Fixed with `[-:-]` (fg+bg reset).
-   Follow-up recorded: Ctrl+PgUp/Ctrl+PgDn page step should equal the
-   visible row count of the pane (TC behavior), not the current fixed ±10.
+    Follow-up recorded: Ctrl+PgUp/Ctrl+PgDn page step should equal the
+    visible row count of the pane (TC behavior), not the current fixed ±10.
+- 2026-10-12 (T7 filter design, user-confirmed): quick search uses the TC mode
+  "Letter with search window" (Configuración → Búsqueda rápida, 4th option of
+  the first group). The trigger is typing a plain letter in the focused panel
+  (NOT Ctrl+Alt+letter as first drafted). Live behavior: the listing narrows to
+  entries whose name contains the typed text (substring, case-insensitive);
+  Backspace edits; Esc cancels the filter and restores the full listing; Enter
+  puts the cursor on the first match and closes the window.
+- 2026-10-12 (T7a scope): the selection model lives in `core.Panel`, keyed by
+  entry name, cleared on `Load`. Keys: Insert (toggle + advance), Space
+  (toggle), `+`/`-` (mask select/deselect), `*` (invert). Copy/move/delete
+  still act on the cursor entry only — feeding the selection set into those
+  operations (S3) is deferred to a separate work unit T7a2 to keep this one
+  bounded.
