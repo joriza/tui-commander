@@ -55,9 +55,13 @@ copy-and-run, portable from a USB stick.
       unit tests (test-first).
 - [ ] T5: Dual panel UI — real listings, per-panel state, cursor, sorting,
       focus switching (S1, S2).
-- [ ] T6: F-key wiring — F5/F6/F7/F8/Shift+F6 bound to core operations with
-      confirmation dialogs and progress view (S3–S5).
-- [ ] T7: Incremental filter + drive switching (S6, S2).
+- [ ] T6: F-key wiring — TC-standard bindings: F5 copy, F6 shared
+      move-or-rename dialog, Shift+F6 rename in place, Shift+F5 duplicate,
+      F7 mkdir, F8 and Delete delete, all with confirmation dialogs and
+      progress view (S3–S5); Esc closes topmost dialog only.
+- [ ] T7: Incremental filter (Ctrl+Alt+letter, TC standard) + drive
+switching with Alt+F1/Alt+F2 (S6, S2); selection keys Insert,
+Space, +, -, * on main-row keys.
 - [ ] T8: View/Edit + polish — F3 pager, F4 editor handoff, README final,
       optimized static build (`-ldflags="-s -w"`), smoke test on a real
       folder tree, portable-run checklist.
@@ -86,3 +90,15 @@ copy-and-run, portable from a USB stick.
   in v0 by spec (S3) matching MC/TC default behavior; the queue consumes a
   `Copier` interface so bounded parallelism can be added in v1 without
   changing the queue contract. Copies preserve mtime (`os.Chtimes`).
+- 2026-10-12 (keyboard fidelity, user requirement): respect Total Commander
+  standard keyboard behavior as far as a terminal allows. v0 map: Tab focus;
+  Enter descend; Ctrl+PgUp parent; Insert select (cursor advances); Space
+  select (dir sizes v1); +/-/* group select/deselect/invert on main-row keys
+  (terminal adaptation — numpad codes unreliable); F3/F4/F5/F7/F8 per TC;
+  F6 shared move-or-rename dialog like TC; Shift+F6 rename in place;
+  Shift+F5 duplicate in same dir; F8 and Delete both delete; Esc closes the
+  topmost dialog and only quits from the main view (documented TUI
+  adaptation); F10 quits (no menu bar in v0); Ctrl+Alt+letter quick search;
+  Alt+F1/Alt+F2 drive switch per panel. v1 candidates recorded: Shift+F2
+  compare directories, Ctrl+M multi-rename, Ctrl+D dir hotlist, folder
+  tabs (Ctrl+T/Ctrl+W), Space dir-size calculation, Enter executing files.
