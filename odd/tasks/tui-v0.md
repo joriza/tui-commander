@@ -62,8 +62,8 @@ copy-and-run, portable from a USB stick.
       Delivered as T6a (47ee481 + fixes 0123a9d/c2add46) and T6b (ae22ba4:
       copy/duplicate/move/rename with byte progress and overwrite
       confirmation; silent-overwrite move risk caught and fixed in review).
-- [ ] T7: selection + incremental filter (S6) + drive switching (S2).
-      Split into three work units:
+- [x] T7: selection + incremental filter (S6) + drive switching (S2).
+      Delivered as T7a, T7b, T7c, T7a2, T7d and T7e (evidence below).
       - [x] T7a: multi-selection model in `core.Panel` + keys Insert
             (toggle + advance), Space (toggle), `+`/`-` (mask select/deselect),
             `*` (invert); selected rows highlighted and count shown in the
@@ -79,9 +79,14 @@ copy-and-run, portable from a USB stick.
       - [x] T7c: drive/volume switching — Alt+F1 (left panel) / Alt+F2 (right
             panel) opens a volume list; choosing one loads that root into the
             panel. Windows: enumerate existing `A:\`..`Z:\` roots; Unix: `/`.
-      - [ ] T7a2 (deferred): wire copy/move/delete to operate on the selection
-            set (S3). Today they act on the cursor entry only; `selectedEntries`
-            in app.go is dead code.
+      - [x] T7a2: wire copy/move/delete to operate on the selection set (S3)
+            (commit `a489e09`).
+            When the panel has a non-empty selection the operation applies to
+            the selected entries ONLY (the cursor is not auto-included, TC
+            semantics); otherwise it falls back to the cursor entry. For a
+            multi-selection the copy/move destination is the target directory.
+            Confirmation dialogs show the item COUNT for a multi-selection,
+            never the names.
       - [x] T7d (T7 smoke-test polish, requested by user 2026-10-12):
             - [x] T7d1: choosing a drive with Alt+F1/Alt+F2 makes that panel the
                   ACTIVE panel (Total Commander behaviour); today focus stays
@@ -93,6 +98,11 @@ copy-and-run, portable from a USB stick.
             - [x] T7d3: very long names are truncated in the MIDDLE with an
                   ellipsis, preserving the start and the extension (e.g.
                   `very-long-fi….tar.gz`), instead of a plain end cut.
+      - [x] T7e (bug, user manual test 2026-10-12; fixed in `45ed003`): the folder date column always
+            shows the same value. Root cause: `core.Panel.Load` sets
+            `Entry.ModTime` only for non-directories (`if !de.IsDir()`), so
+            directories keep the zero time. Fix: read `Info()` for directories
+            too (Size stays 0 for dirs).
 - [x] T6c (commit `9099946`): ItemStarted.Size in core; OperationRunner
       byte tracking; progress modal with two text bars (file% + total%) +
       ETA/speed after 2% (EMA, TC-style); ShowFormDialog extraRows (delete
@@ -141,6 +151,9 @@ copy-and-run, portable from a USB stick.
 | RDD T7 slice | abandoned `review-4a4ed81f7b510552` (2026-10-12, `operator_disposition`, actor `orchestrator`) | Review of the T7 slice (13 paths / 1867 lines vs boundary `e9f1c32`) started on user consent (granted via native `question`); the `review-reliability` lens capture failed a 7th time with `opencode_task_output_empty` (reviewer Task completes without producing a result — this runtime's reviewer transport returns nothing; identical failure across 7 lineages since T6d). Relaunched once after the fresh STATUS re-offered the same bound slot; failed identically. Per contract, no indefinite retries: user chose to abandon the lineage at minimal cost. Quarantine: `.git/gentle-ai/review-transactions/quarantine/review-4a4ed81f7b510552-4132857914`. Verification stands on ordinary evidence: worker test-first (RED→GREEN), parent line-by-line diff review, `go build ./...`, `go vet ./...`, `go test ./... -count=1` and linux cross-build/vet all green per task. RDD remains enabled; a later review would need a compatible runtime (Claude Code/Codex) or a working reviewer transport. |
 | T7b fix | `8258ac3` (branch `tui-v0`) | User smoke test (2026-10-12): the quick search filter works with plain letters, but the search window overlapped the bottom key bar. Fixed in `buildUI`: `searchWrap` gains a fixed 2-row bottom spacer so the window renders above the key bar (which occupies the last row of the main page). Parent re-verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green (no deterministic UI-layout test exists — structural check only). Manual retest: user |
 | T7d | `cba96bc` (branch `tui-v0`) | Worker (gentle-ai-worker) RED (undefined `nameColumnWidth`/`truncateMiddle`) → GREEN: new `internal/ui/render_test.go` (TestTruncateMiddle 4 subtests, TestTruncateMiddleLongASCII, TestTruncateMiddleMultiByteCountsRunes, TestNameColumnWidth 4 subtests, TestNameColumnWidthNonDecreasing all PASS). Changes: `renderPanel` name column now `nameColumnWidth(width)` (fills the space left after the fixed size 8 + date 16 + separators 4 = 28 columns, minimum 20) plus `truncateMiddle` (middle `…`, keeps the extension); `driveDialog` sets `focusIndex` so the chosen drive's panel becomes active. Parent re-verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green (`internal/ui` now has tests); reviewed app.go + render_test.go line-by-line. T7d1 (drive focus) has no deterministic test — interactive dialog callback; structural check only. Visual smoke: pending user test. RDD clone-local OFF (opencode reviewer transport broken) — ordinary checks only |
+
+| T7e | `45ed003` (branch `tui-v0`) | Folder date column showed the zero time. Root cause confirmed by a failing test: `core.Panel.Load` set `Entry.ModTime` only for non-directories (`if !de.IsDir()`). Fix reads `Info()` for both kinds (Size stays 0 for dirs). Test-first: `TestLoad_SetsDirectoryModTime` RED (`0001-01-01` vs the seeded mtime) → GREEN. Parent verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green; `gofmt -l internal/ui` empty. RDD clone-local OFF — ordinary checks only. Visual smoke: pending user test |
+| T7a2 | `a489e09` (branch `tui-v0`) | F5/F6/F8 operate on `selectedEntries` (selection-only when non-empty, cursor fallback; cursor never auto-included). Multi-selection dialogs and progress titles show the item COUNT, never names. Single source keeps the full-destination (rename-on-copy/move) flow; multi source treats the destination as a directory and joins each name; multi move into the source directory is a no-op. Pure helpers `opLabel`/`targetPaths`/`overwritePrompt`/`anyTargetExists` extracted, tested in `internal/ui/ops_test.go` (worker RED = build failure on undefined symbols → GREEN). Independent verifier (`gentle-ai-verify`, tier high/unassessable): no blocking findings, single-selection behaviour preserved, tests assert real behaviour. Parent restored the `(permanent)` delete warning the worker had dropped. Parent verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green; `gofmt -l internal/ui` empty; diff reviewed line-by-line. Visual smoke: pending user test |
 
 ## Decisions log
 
@@ -211,3 +224,15 @@ copy-and-run, portable from a USB stick.
   the extension. Choosing a drive (Alt+F1/Alt+F2) makes that panel the active
   panel (Total Commander behaviour). "Start maximized" was left out: it is an
   OS/terminal-host concern, not the application's.
+- 2026-10-12 (T7a2 design, user): F5 copy, F6 move and F8/Delete operate on the
+  selection set — when it is non-empty the selected entries ONLY (the cursor is
+  not auto-included, TC semantics), otherwise the cursor entry. Multi-selection
+  confirmation dialogs and the progress bar show the item COUNT only, never the
+  names. A single source keeps the destination as the full target path
+  (rename-on-copy/move); a multi-selection's destination is a target directory and
+  every entry keeps its own name. Multi move into the source panel's own directory
+  is a no-op. Duplicate (Shift+F5) and Rename (Shift+F6) remain single-entry.
+- 2026-10-12 (T7e fix, user): `core.Panel.Load` now reads `Info()` for directories
+  as well, so the folder date column shows the real mtime (`Size` stays 0 for
+  dirs). The earlier `(permanent)` warning on the delete confirmation is kept for
+  both single- and multi-item deletes.
