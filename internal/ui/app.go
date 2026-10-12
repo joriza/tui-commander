@@ -100,7 +100,10 @@ func (a *App) buildUI() {
 		AddItem(tview.NewFlex().
 			AddItem(nil, 0, 1, false).
 			AddItem(a.searchField, 45, 1, true).
-			AddItem(nil, 0, 1, false), 3, 0, true)
+			AddItem(nil, 0, 1, false), 3, 0, true).
+		// Fixed 2-row bottom spacer: keeps the window above the key bar
+		// (which occupies the last row of the main page).
+		AddItem(nil, 2, 0, false)
 	a.pages.AddPage("search", searchWrap, true, false)
 
 	a.tviewApp.SetRoot(a.pages, true)
