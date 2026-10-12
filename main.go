@@ -5,45 +5,27 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/gdamore/tcell/v2"
-	"github.com/rivo/tview"
+	"tui-commander/internal/core"
+	"tui-commander/internal/ui"
 )
 
 func main() {
-	app := tview.NewApplication()
+	cwd, err := os.Getwd()
+	if err != nil {
+		panic(err)
+	}
 
-	leftList := tview.NewList().
-		AddItem("Left: <path placeholder>", "", 0, nil)
+	leftPanel := core.NewPanel()
+	if err := leftPanel.Load(cwd); err != nil {
+		panic(err)
+	}
 
-	rightList := tview.NewList().
-		AddItem("Right: <path placeholder>", "", 0, nil)
+	rightPanel := core.NewPanel()
+	if err := rightPanel.Load(cwd); err != nil {
+		panic(err)
+	}
 
-	flex := tview.NewFlex().
-		AddItem(leftList, 0, 1, false).
-		AddItem(rightList, 0, 1, false)
-
-	keyBar := tview.NewTextView().
-		SetText("F5 Copy  F6 Move  F7 MkDir  F8 Del  F10 Quit")
-
-	root := tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(flex, 0, 1, false).
-		AddItem(keyBar, 1, 0, false)
-
-	app.SetRoot(root, true)
-
-	// Quit bindings: F10, q, Ctrl+C
-	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch {
-		case event.Key() == tcell.KeyEscape || event.Key() == tcell.KeyF10:
-			app.Stop()
-			return nil
-		case event.Rune() == 'q' || event.Rune() == 'Q':
-			app.Stop()
-			return nil
-		}
-		return event
-	})
+	app := ui.NewApp(leftPanel, rightPanel)
 
 	// Graceful shutdown on Ctrl+C
 	sigCh := make(chan os.Signal, 1)
