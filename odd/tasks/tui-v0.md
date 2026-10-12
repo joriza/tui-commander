@@ -76,7 +76,7 @@ copy-and-run, portable from a USB stick.
             window. TC mode "Letter with search window" (Config / Quick search,
             4th option of the first group — confirmed by user 2026-10-12).
             Trigger is typing a letter, NOT Ctrl+Alt+letter as first drafted.
-      - [ ] T7c: drive/volume switching — Alt+F1 (left panel) / Alt+F2 (right
+      - [x] T7c: drive/volume switching — Alt+F1 (left panel) / Alt+F2 (right
             panel) opens a volume list; choosing one loads that root into the
             panel. Windows: enumerate existing `A:\`..`Z:\` roots; Unix: `/`.
       - [ ] T7a2 (deferred): wire copy/move/delete to operate on the selection
@@ -125,6 +125,7 @@ copy-and-run, portable from a USB stick.
 | T6b | `ae22ba4` (branch `tui-v0`) | F5/Shift+F5/F6/Shift+F6 wired TC-style; byte progress via QueueTotals+ItemProgress; overwrite confirmation on copy AND cross-directory move (silent Overwrite:true caught in parent review — data-loss risk). Build, vet, 85 tests, linux build observed directly. Visual smoke: pending user test |
 | T6d | `9980525` (branch `tui-v0`) | Root cause confirmed empirically (dumped dir-copy event stream: one folder-level ItemStarted, items=1, no file names). RED observed by worker (undefined `ItemFile`/`TotalFiles` build failure) → GREEN: new tests `TestCopyQueue_DirEmitsItemFile` (3 files, per-file Source/Size, TotalFiles=3) and `TestMoveQueue_FallbackForwardsItemFile` (2 files forwarded). Parent re-verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green;       reviewed copy.go/operations.go diff line-by-line. Visual smoke: pending user retest |
 | T7a | `d597e9c` (branch `tui-v0`) | Name-keyed selection model in `core.Panel` (cleared on Load), keys Insert/Space/`+`/`-`/`*`, yellow selected rows + `[N]` count in the panel title. Worker RED (undefined `ToggleSelectAtCursor`) → GREEN: 11 new core tests. Parent re-verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green; reviewed the panel.go/app.go diff line-by-line. `gofmt -l` flags `internal/core` repo-wide (CRLF, pre-existing — untouched `dirs.go` is also flagged). Visual smoke: pending user test |
+| T7c | `02c0bfb` (branch `tui-v0`) | `core.Volumes()` enumerates roots (Windows `A:\`..`Z:\` filtered by `os.Stat`, single `/` elsewhere); `ShowListDialog` added to dialogs.go; Alt+F1 (left) / Alt+F2 (right) open a drive list and load the chosen root; Alt cases precede plain F2 (reread). Worker RED (undefined `Volumes`) → GREEN: 3 platform-aware tests. Parent re-verified directly: build, vet, `go test ./... -count=1`, linux cross-build+vet all green; reviewed diff line-by-line. Visual smoke: pending user test |
 
 ## Decisions log
 
