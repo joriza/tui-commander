@@ -403,3 +403,330 @@ func TestLoad_ReloadReflectsNewContent(t *testing.T) {
 		t.Errorf("after reload, expected more entries (%d > %d), got %d", newCount, initialCount, newCount)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Selection
+// ---------------------------------------------------------------------------
+
+func TestToggleSelectAtCursor(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	entries := p.Entries()
+	if len(entries) == 0 {
+		t.Fatal("expected entries after Load")
+	}
+
+	p.SetCursor(0)
+	name := entries[0].Name
+
+	if got := p.ToggleSelectAtCursor(); !got {
+		t.Errorf("first toggle expected true (now selected), got %v", got)
+	}
+	if !p.IsSelected(name) {
+		t.Errorf("expected %q selected after toggle", name)
+	}
+	if p.SelectionCount() != 1 {
+		t.Errorf("SelectionCount expected 1, got %d", p.SelectionCount())
+	}
+
+	if got := p.ToggleSelectAtCursor(); got {
+		t.Errorf("second toggle expected false (now deselected), got %v", got)
+	}
+	if p.IsSelected(name) {
+		t.Errorf("expected %q deselected after second toggle", name)
+	}
+	if p.SelectionCount() != 0 {
+		t.Errorf("SelectionCount expected 0, got %d", p.SelectionCount())
+	}
+}
+
+func TestToggleSelectAtCursor_NoEntries(t *testing.T) {
+	p := NewPanel()
+
+	if got := p.ToggleSelectAtCursor(); got {
+		t.Errorf("toggle with no entries expected false, got %v", got)
+	}
+	if p.SelectionCount() != 0 {
+		t.Errorf("SelectionCount expected 0, got %d", p.SelectionCount())
+	}
+}
+
+func TestClearSelection(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	p.SetCursor(0)
+	p.ToggleSelectAtCursor()
+	if p.SelectionCount() != 1 {
+		t.Fatalf("precondition: expected 1 selected, got %d", p.SelectionCount())
+	}
+
+	p.ClearSelection()
+	if p.SelectionCount() != 0 {
+		t.Errorf("SelectionCount expected 0 after ClearSelection, got %d", p.SelectionCount())
+	}
+	if len(p.SelectedEntries()) != 0 {
+		t.Errorf("SelectedEntries expected empty after ClearSelection, got %d", len(p.SelectedEntries()))
+	}
+}
+
+func TestSelectionOrderFollowsVisibleEntries(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	entries := p.Entries()
+	if len(entries) < 3 {
+		t.Fatalf("need at least 3 entries, got %d", len(entries))
+	}
+
+	// Select last, then first, then second: selection order must still
+	// follow the visible entry order, not the selection order.
+	p.SetCursor(len(entries) - 1)
+	p.ToggleSelectAtCursor()
+	p.SetCursor(0)
+	p.ToggleSelectAtCursor()
+	p.SetCursor(1)
+	p.ToggleSelectAtCursor()
+
+	expected := []string{entries[0].Name, entries[1].Name, entries[len(entries)-1].Name}
+
+	names := p.SelectedNames()
+	if len(names) != len(expected) {
+		t.Fatalf("SelectedNames expected %d names, got %d (%v)", len(expected), len(names), names)
+	}
+	for i, want := range expected {
+		if names[i] != want {
+			t.Errorf("SelectedNames[%d] expected %q, got %q", i, want, names[i])
+		}
+	}
+
+	selEntries := p.SelectedEntries()
+	if len(selEntries) != len(expected) {
+		t.Fatalf("SelectedEntries expected %d, got %d", len(expected), len(selEntries))
+	}
+	for i, want := range expected {
+		if selEntries[i].Name != want {
+			t.Errorf("SelectedEntries[%d] expected %q, got %q", i, want, selEntries[i].Name)
+		}
+	}
+}
+
+func TestSelectedEntries_ReturnsCopy(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	p.SetCursor(0)
+	p.ToggleSelectAtCursor()
+
+	first := p.SelectedEntries()
+	if len(first) != 1 {
+		t.Fatalf("expected 1 selected entry, got %d", len(first))
+	}
+	first[0].Name = "mutated-by-caller"
+
+	second := p.SelectedEntries()
+	if second[0].Name == "mutated-by-caller" {
+		t.Error("SelectedEntries must return a copy; mutating the result changed panel state")
+	}
+}
+
+func TestInvertSelection(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	total := len(p.Entries())
+	if total == 0 {
+		t.Fatal("expected entries after Load")
+	}
+
+	// Start with exactly one selected.
+	p.SetCursor(0)
+	p.ToggleSelectAtCursor()
+	first := p.Entries()[0].Name
+
+	got := p.InvertSelection()
+	if want := total - 1; got != want {
+		t.Errorf("InvertSelection expected %d, got %d", want, got)
+	}
+	if p.SelectionCount() != total-1 {
+		t.Errorf("SelectionCount expected %d after invert, got %d", total-1, p.SelectionCount())
+	}
+	if p.IsSelected(first) {
+		t.Errorf("expected %q deselected after invert", first)
+	}
+
+	// Inverting twice restores the original selection.
+	got2 := p.InvertSelection()
+	if got2 != 1 {
+		t.Errorf("second InvertSelection expected 1, got %d", got2)
+	}
+	if !p.IsSelected(first) {
+		t.Errorf("expected %q selected again after double invert", first)
+	}
+	if p.SelectionCount() != 1 {
+		t.Errorf("SelectionCount expected 1 after double invert, got %d", p.SelectionCount())
+	}
+}
+
+func TestSelectMaskAndDeselectMask(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	n, err := p.SelectMask("*.txt")
+	if err != nil {
+		t.Fatalf("SelectMask(*.txt) unexpected error: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("SelectMask(*.txt) expected 2, got %d", n)
+	}
+	if !p.IsSelected("a-file.txt") || !p.IsSelected("b-file.txt") {
+		t.Error("expected a-file.txt and b-file.txt selected")
+	}
+	if p.IsSelected("c-file.log") {
+		t.Error("c-file.log should not be selected by *.txt")
+	}
+	if p.SelectionCount() != 2 {
+		t.Errorf("SelectionCount expected 2, got %d", p.SelectionCount())
+	}
+
+	m, err := p.DeselectMask("*.txt")
+	if err != nil {
+		t.Fatalf("DeselectMask(*.txt) unexpected error: %v", err)
+	}
+	if m != 2 {
+		t.Errorf("DeselectMask(*.txt) expected 2, got %d", m)
+	}
+	if p.SelectionCount() != 0 {
+		t.Errorf("SelectionCount expected 0 after deselect, got %d", p.SelectionCount())
+	}
+}
+
+func TestSelectMask_CaseInsensitive(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Uppercase pattern must match the lowercase file names.
+	n, err := p.SelectMask("*.TXT")
+	if err != nil {
+		t.Fatalf("SelectMask(*.TXT) unexpected error: %v", err)
+	}
+	if n != 2 {
+		t.Errorf("SelectMask(*.TXT) expected 2, got %d", n)
+	}
+	if !p.IsSelected("a-file.txt") || !p.IsSelected("b-file.txt") {
+		t.Error("expected case-insensitive *.TXT to select a-file.txt and b-file.txt")
+	}
+}
+
+func TestSelectMask_Malformed(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Pre-select one entry so we can assert the selection is untouched.
+	p.SetCursor(0)
+	p.ToggleSelectAtCursor()
+	before := p.SelectionCount()
+
+	n, err := p.SelectMask("[")
+	if err == nil {
+		t.Error("SelectMask(\"[\") expected error for malformed pattern, got nil")
+	}
+	if n != 0 {
+		t.Errorf("malformed SelectMask should select nothing, got %d", n)
+	}
+	if p.SelectionCount() != before {
+		t.Errorf("selection changed on malformed SelectMask: before %d, after %d", before, p.SelectionCount())
+	}
+}
+
+func TestDeselectMask_Malformed(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	p.SetCursor(0)
+	p.ToggleSelectAtCursor()
+	before := p.SelectionCount()
+
+	n, err := p.DeselectMask("[")
+	if err == nil {
+		t.Error("DeselectMask(\"[\") expected error for malformed pattern, got nil")
+	}
+	if n != 0 {
+		t.Errorf("malformed DeselectMask should deselect nothing, got %d", n)
+	}
+	if p.SelectionCount() != before {
+		t.Errorf("selection changed on malformed DeselectMask: before %d, after %d", before, p.SelectionCount())
+	}
+}
+
+func TestLoad_ClearsSelection(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	p.SetCursor(0)
+	p.ToggleSelectAtCursor()
+	if p.SelectionCount() == 0 {
+		t.Fatal("precondition: expected a non-empty selection")
+	}
+
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	if p.SelectionCount() != 0 {
+		t.Errorf("expected selection cleared after Load, got %d", p.SelectionCount())
+	}
+	if len(p.SelectedEntries()) != 0 {
+		t.Errorf("SelectedEntries expected empty after Load, got %d", len(p.SelectedEntries()))
+	}
+}

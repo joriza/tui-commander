@@ -114,8 +114,12 @@ func (a *App) renderPanel(panel *core.Panel, view *tview.TextView, focused bool)
 		view.SetBorderColor(tcell.ColorGrey)
 	}
 
-	// Title shows the current path
-	view.SetTitle(fmt.Sprintf(" %s ", panel.CurrentPath()))
+	// Title shows the current path, plus the selection count when non-empty.
+	if panel.SelectionCount() > 0 {
+		view.SetTitle(fmt.Sprintf(" %s [%d] ", panel.CurrentPath(), panel.SelectionCount()))
+	} else {
+		view.SetTitle(fmt.Sprintf(" %s ", panel.CurrentPath()))
+	}
 
 	entries := panel.Entries()
 	cursor := panel.Cursor()
@@ -151,6 +155,9 @@ func (a *App) renderPanel(panel *core.Panel, view *tview.TextView, focused bool)
 			} else {
 				fmt.Fprintf(view, "[black:gray]%s[-:-]\n", line)
 			}
+		} else if panel.IsSelected(e.Name) {
+			// Selected non-cursor rows are highlighted in yellow.
+			fmt.Fprintf(view, "[yellow]%s[-]\n", line)
 		} else {
 			fmt.Fprintf(view, "%s\n", line)
 		}
@@ -282,6 +289,30 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 
 	case event.Key() == tcell.KeyF10:
 		a.tviewApp.Stop()
+		return nil
+
+	case event.Key() == tcell.KeyInsert:
+		a.toggleSelectAndAdvance()
+		return nil
+
+	case event.Key() == tcell.KeyRune && event.Rune() == ' ' &&
+		event.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) == 0:
+		a.toggleSelectCurrent()
+		return nil
+
+	case event.Key() == tcell.KeyRune && event.Rune() == '+' &&
+		event.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) == 0:
+		a.selectMaskDialog(true)
+		return nil
+
+	case event.Key() == tcell.KeyRune && event.Rune() == '-' &&
+		event.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) == 0:
+		a.selectMaskDialog(false)
+		return nil
+
+	case event.Key() == tcell.KeyRune && event.Rune() == '*' &&
+		event.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) == 0:
+		a.invertSelection()
 		return nil
 	}
 
@@ -456,14 +487,77 @@ func (a *App) runDelete(panel *core.Panel, entry core.Entry) {
 	runner.Run(a)
 }
 
-// selectedEntries returns the cursor entry only (v0; T7 will
-// swap the body for multi-selection).
+// selectedEntries returns the panel's explicitly selected entries. When
+// nothing is explicitly selected it falls back to the cursor entry, which
+// is how Total Commander treats "no selection" (operate on the cursor).
+// Feeding this set into copy/move/delete is deferred to a later unit.
 func (a *App) selectedEntries(panel *core.Panel) []core.Entry {
+	selected := panel.SelectedEntries()
+	if len(selected) > 0 {
+		return selected
+	}
 	entries := panel.Entries()
 	if len(entries) == 0 {
 		return nil
 	}
 	return []core.Entry{entries[panel.Cursor()]}
+}
+
+// toggleSelectAndAdvance toggles the cursor entry's selection and then
+// advances the cursor by one (Insert semantics, Total Commander style).
+func (a *App) toggleSelectAndAdvance() {
+	a.focusedPanel().ToggleSelectAtCursor()
+	a.moveCursor(1)
+	a.render()
+}
+
+// toggleSelectCurrent toggles the cursor entry's selection without moving
+// the cursor (Space, Total Commander style).
+func (a *App) toggleSelectCurrent() {
+	a.focusedPanel().ToggleSelectAtCursor()
+	a.render()
+}
+
+// selectMaskDialog prompts for a wildcard mask and applies it to the
+// focused panel: selecting matching entries when selectMode is true,
+// deselecting them otherwise. A malformed mask shows an error dialog.
+func (a *App) selectMaskDialog(selectMode bool) {
+	panel := a.focusedPanel()
+
+	input := tview.NewInputField().
+		SetLabel("Mask: ").
+		SetFieldWidth(30).
+		SetText("*")
+
+	title := "Select group"
+	if !selectMode {
+		title = "Deselect group"
+	}
+
+	a.ShowFormDialog(title, []tview.FormItem{input}, 0, func(ok bool) {
+		if !ok {
+			return
+		}
+		mask := input.GetText()
+		var err error
+		if selectMode {
+			_, err = panel.SelectMask(mask)
+		} else {
+			_, err = panel.DeselectMask(mask)
+		}
+		if err != nil {
+			a.ShowErrorDialog("Error", fmt.Sprintf("Invalid mask %q: %v", mask, err), nil)
+			return
+		}
+		a.render()
+	})
+}
+
+// invertSelection inverts the selection of all visible entries in the
+// focused panel (Total Commander '*').
+func (a *App) invertSelection() {
+	a.focusedPanel().InvertSelection()
+	a.render()
 }
 
 // otherPanel returns the panel that is not the given one.

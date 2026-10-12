@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -32,17 +33,22 @@ type Panel struct {
 	currentPath string
 	entries     []Entry
 	cursor      int
+	// selected tracks explicitly selected entries keyed by entry Name.
+	selected map[string]bool
 }
 
 // NewPanel creates a Panel with zero state (no path loaded).
 func NewPanel() *Panel {
-	return &Panel{}
+	return &Panel{selected: make(map[string]bool)}
 }
 
 // Load populates the panel's entries from the filesystem at path using
 // os.ReadDir. The path is cleaned and stored as the panel's current path.
 // Entries are sorted with directories first, then case-insensitive name
 // ascending. Returns an error if the path cannot be read.
+//
+// Load clears any existing selection: changing directory or rereading the
+// listing drops the selection, matching Total Commander semantics.
 func (p *Panel) Load(path string) error {
 	cleaned := filepath.Clean(path)
 
@@ -53,6 +59,7 @@ func (p *Panel) Load(path string) error {
 
 	p.currentPath = cleaned
 	p.entries = p.entries[:0]
+	p.selected = make(map[string]bool)
 
 	for _, de := range entries {
 		e := Entry{
@@ -184,4 +191,138 @@ func (p *Panel) Descend(name string) error {
 // CurrentPath returns the panel's current directory path.
 func (p *Panel) CurrentPath() string {
 	return p.currentPath
+}
+
+// ---------------------------------------------------------------------------
+// Selection
+// ---------------------------------------------------------------------------
+
+// ToggleSelectAtCursor toggles the selection state of the entry at the
+// cursor and returns the resulting state (true when the entry is now
+// selected). It returns false when the panel has no entries.
+func (p *Panel) ToggleSelectAtCursor() bool {
+	if len(p.entries) == 0 {
+		return false
+	}
+	name := p.entries[p.cursor].Name
+	if p.selected[name] {
+		delete(p.selected, name)
+		return false
+	}
+	p.selected[name] = true
+	return true
+}
+
+// IsSelected reports whether the entry with the given name is selected.
+func (p *Panel) IsSelected(name string) bool {
+	return p.selected[name]
+}
+
+// SelectedNames returns the names of the selected entries in the panel's
+// current visible entry order.
+func (p *Panel) SelectedNames() []string {
+	names := make([]string, 0, len(p.selected))
+	for _, e := range p.entries {
+		if p.selected[e.Name] {
+			names = append(names, e.Name)
+		}
+	}
+	return names
+}
+
+// SelectedEntries returns a copy of the selected entries in the panel's
+// current visible entry order (same copy semantics as Entries).
+func (p *Panel) SelectedEntries() []Entry {
+	result := make([]Entry, 0, len(p.selected))
+	for _, e := range p.entries {
+		if p.selected[e.Name] {
+			result = append(result, e)
+		}
+	}
+	return result
+}
+
+// SelectionCount returns the number of currently selected entries.
+func (p *Panel) SelectionCount() int {
+	return len(p.selected)
+}
+
+// ClearSelection removes every selected entry.
+func (p *Panel) ClearSelection() {
+	p.selected = make(map[string]bool)
+}
+
+// SelectMask selects every visible entry whose name matches mask and
+// returns the number of entries that this call newly selected. Matching
+// uses filepath.Match, case-insensitively (both mask and name are
+// lowercased first). A malformed mask returns the filepath.Match error
+// and leaves the selection unchanged.
+func (p *Panel) SelectMask(mask string) (int, error) {
+	names, err := p.matchMask(mask)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, name := range names {
+		if !p.selected[name] {
+			p.selected[name] = true
+			count++
+		}
+	}
+	return count, nil
+}
+
+// DeselectMask deselects every visible entry whose name matches mask and
+// returns the number of entries that this call newly deselected. Matching
+// uses the same case-insensitive filepath.Match rules as SelectMask. A
+// malformed mask returns the filepath.Match error and leaves the selection
+// unchanged.
+func (p *Panel) DeselectMask(mask string) (int, error) {
+	names, err := p.matchMask(mask)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, name := range names {
+		if p.selected[name] {
+			delete(p.selected, name)
+			count++
+		}
+	}
+	return count, nil
+}
+
+// InvertSelection inverts the selection across all visible entries and
+// returns the resulting selection count.
+func (p *Panel) InvertSelection() int {
+	next := make(map[string]bool, len(p.entries))
+	for _, e := range p.entries {
+		if !p.selected[e.Name] {
+			next[e.Name] = true
+		}
+	}
+	p.selected = next
+	return len(p.selected)
+}
+
+// matchMask returns the names of the visible entries matching mask,
+// matched case-insensitively with filepath.Match. The pattern is validated
+// even when the panel has no entries, so a malformed mask always reports
+// the filepath.Match error.
+func (p *Panel) matchMask(mask string) ([]string, error) {
+	lowerMask := strings.ToLower(mask)
+	if _, err := filepath.Match(lowerMask, ""); err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range p.entries {
+		ok, err := filepath.Match(lowerMask, strings.ToLower(e.Name))
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			names = append(names, e.Name)
+		}
+	}
+	return names, nil
 }
