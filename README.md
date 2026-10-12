@@ -5,6 +5,9 @@ Single static binary — copy and run, nothing to install.
 
 **Status:** work in progress (v0). See [odd/tasks/tui-v0.md](odd/tasks/tui-v0.md).
 
+Lessons and fixes for the future GUI sibling:
+[odd/lessons-for-sibling-app.md](odd/lessons-for-sibling-app.md) — updated with every fix.
+
 ## Build
 
 Requires Go 1.26+.
