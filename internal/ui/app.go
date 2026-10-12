@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -35,7 +36,6 @@ func NewApp(left, right *core.Panel) *App {
 // Run starts the tview event loop.
 func (a *App) Run() error {
 	a.buildUI()
-	a.render()
 	return a.tviewApp.Run()
 }
 
@@ -76,6 +76,13 @@ func (a *App) buildUI() {
 
 	// Global key capture
 	a.tviewApp.SetInputCapture(a.handleKey)
+
+	// Re-render every frame so the cursor bar matches the real panel
+	// width (startup and terminal resizes included).
+	a.tviewApp.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
+		a.render()
+		return false
+	})
 }
 
 // render refreshes both panel views from their core.Panel state.
@@ -103,6 +110,11 @@ func (a *App) renderPanel(panel *core.Panel, view *tview.TextView, focused bool)
 	entries := panel.Entries()
 	cursor := panel.Cursor()
 
+	_, _, width, _ := view.GetInnerRect()
+	if width <= 0 {
+		width = 80
+	}
+
 	for i, e := range entries {
 		var sizeStr string
 		if e.IsDir {
@@ -113,14 +125,16 @@ func (a *App) renderPanel(panel *core.Panel, view *tview.TextView, focused bool)
 		mtimeStr := e.ModTime.Format("2006-01-02 15:04")
 
 		line := fmt.Sprintf("%-30s  %10s  %s", e.Name, sizeStr, mtimeStr)
-		// Pad so the cursor highlight spans the full row width.
-		line = fmt.Sprintf("%-100s", line)
+		// The cursor bar must match the real row width: a fixed padding
+		// wider than the panel wraps lines and drags the background color
+		// into extra visual lines (looked like "everything selected").
+		line = padOrTruncate(line, width)
 
 		if i == cursor {
-			// High-visibility full-row bar: bright green on the focused
-			// panel, dim grey on the other (both cursors visible, TC style).
+			// Full-row bar: muted green on the focused panel, dim grey on
+			// the other (both cursors visible, TC style).
 			if focused {
-				fmt.Fprintf(view, "[black:green]%s[-]\n", line)
+				fmt.Fprintf(view, "[black:darkgreen]%s[-]\n", line)
 			} else {
 				fmt.Fprintf(view, "[black:gray]%s[-]\n", line)
 			}
@@ -128,6 +142,16 @@ func (a *App) renderPanel(panel *core.Panel, view *tview.TextView, focused bool)
 			fmt.Fprintf(view, "%s\n", line)
 		}
 	}
+}
+
+// padOrTruncate makes the line exactly width runes wide so the cursor
+// highlight spans the row without wrapping.
+func padOrTruncate(s string, width int) string {
+	r := []rune(s)
+	if len(r) > width {
+		return string(r[:max(width-1, 0)]) + "…"
+	}
+	return s + strings.Repeat(" ", width-len(r))
 }
 
 // formatSize returns a human-readable file size string.
@@ -162,7 +186,11 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 		return nil
 
 	case event.Key() == tcell.KeyPgUp && event.Modifiers()&tcell.ModCtrl != 0:
-		a.parentDir()
+		a.moveCursor(-10)
+		return nil
+
+	case event.Key() == tcell.KeyPgDn && event.Modifiers()&tcell.ModCtrl != 0:
+		a.moveCursor(10)
 		return nil
 
 	case event.Key() == tcell.KeyUp:
