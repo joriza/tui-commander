@@ -115,3 +115,8 @@ Space, +, -, * on main-row keys.
    the view's real inner width each frame — a fixed 100-col padding wrapped
    lines and bled the background into extra rows (looked like everything
    selected).
+ - 2026-10-12 (partial-test feedback, round 3): tview `[-]` resets only the
+   foreground — cursor-row background bled into all following rows (shrunk
+   from the top as the cursor moved). Fixed with `[-:-]` (fg+bg reset).
+   Follow-up recorded: Ctrl+PgUp/Ctrl+PgDn page step should equal the
+   visible row count of the pane (TC behavior), not the current fixed ±10.
