@@ -80,11 +80,13 @@ func (p *Panel) Load(path string) error {
 			Name:  de.Name(),
 			IsDir: de.IsDir(),
 		}
-		if !de.IsDir() {
-			info, err := de.Info()
-			if err == nil {
+		// Read metadata for both files and directories so the listing can
+		// show a correct modification time for folders too; only files
+		// carry a meaningful size.
+		if info, err := de.Info(); err == nil {
+			e.ModTime = info.ModTime()
+			if !de.IsDir() {
 				e.Size = info.Size()
-				e.ModTime = info.ModTime()
 			}
 		}
 		p.entries = append(p.entries, e)

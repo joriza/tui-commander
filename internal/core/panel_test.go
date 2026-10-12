@@ -376,6 +376,40 @@ func TestEntries_HasRequiredFields(t *testing.T) {
 // Reload on demand
 // ---------------------------------------------------------------------------
 
+func TestLoad_SetsDirectoryModTime(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "a-dir")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+	want := time.Date(2025, 5, 6, 7, 8, 0, 0, time.UTC)
+	if err := os.Chtimes(sub, want, want); err != nil {
+		t.Fatalf("Chtimes: %v", err)
+	}
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load(%q): %v", dir, err)
+	}
+
+	found := false
+	for _, e := range p.Entries() {
+		if e.Name != "a-dir" {
+			continue
+		}
+		found = true
+		if !e.IsDir {
+			t.Fatalf("a-dir should be a directory")
+		}
+		if !e.ModTime.Equal(want) {
+			t.Fatalf("directory ModTime = %v, want %v", e.ModTime, want)
+		}
+	}
+	if !found {
+		t.Fatal("directory entry a-dir not found")
+	}
+}
+
 func TestLoad_ReloadReflectsNewContent(t *testing.T) {
 	dir, cleanup := mkDir(t)
 	defer cleanup()
