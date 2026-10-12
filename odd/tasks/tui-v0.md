@@ -78,6 +78,7 @@ Space, +, -, * on main-row keys.
 | T4 | `babf371` (branch `tui-v0`) | RED observed (RemoveAll nil for nonexistent sources → Stat check added) → GREEN: 66 tests (`-count=1`), vet clean, `GOOS=linux` build+test compile; all observed directly by parent session |
 | T5 | `9a90bf1` (branch `tui-v0`) | Panel RED→GREEN per worker (RED tail not independently captured — worker report truncated, third occurrence); parent verified directly: 81 tests green (`-count=1`), vet clean, linux build+test compile, keyboard bindings reviewed line-by-line (Tab/Enter/Ctrl+PgUp/arrows/Home/End/F10/Esc). Visual smoke: pending user partial test |
 | T6a | `47ee481` (branch `tui-v0`) | SameDirectory RED→GREEN (4 tests); parent verified directly: 85 tests green (`-count=1`), vet clean, linux build+test compile; parent improved ItemError handling to keep per-file paths in error modal; UI visual smoke: pending user test of F7/F8 |
+| T6a fix | `0123a9d` (branch `tui-v0`) | User-reported deadlock: F7/F8 froze keyboard with no visible dialog, Esc unrecoverable. Root cause: QueueUpdateDraw called from UI-goroutine dialog paths (page adds, button callbacks, closeDialog). Fixed by making dialog helpers mutate pages directly; only updateProgress (operation goroutine) keeps QueueUpdateDraw. Verified: build, vet, 85 tests green; user retest pending |
 
 ## Decisions log
 
