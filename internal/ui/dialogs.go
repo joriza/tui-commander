@@ -95,7 +95,7 @@ func (a *App) ShowErrorDialog(title, message string, callback func()) {
 // QueueUpdateDraw — nesting it inside a queued update self-deadlocks the
 // event loop: the inner send waits for a loop iteration that cannot start
 // until the outer update returns.
-func (a *App) ShowProgressDialog(title string) (updateProgress func(done, total int), closeDialog func()) {
+func (a *App) ShowProgressDialog(title string) (updateProgress func(done, total int, doneBytes, totalBytes int64), closeDialog func()) {
 	textView := tview.NewTextView().
 		SetDynamicColors(true)
 	textView.SetBorder(true).
@@ -105,8 +105,12 @@ func (a *App) ShowProgressDialog(title string) (updateProgress func(done, total 
 	a.pages.AddPage(title, a.wrapDialog(textView, 3), true, true)
 	a.dialogStack = append(a.dialogStack, title)
 
-	updateProgress = func(done, total int) {
-		textView.SetText(fmt.Sprintf("Processing... %d/%d", done, total))
+	updateProgress = func(done, total int, doneBytes, totalBytes int64) {
+		if totalBytes > 0 {
+			textView.SetText(fmt.Sprintf("Processing... %s / %s (item %d/%d)", formatSize(doneBytes), formatSize(totalBytes), done, total))
+		} else {
+			textView.SetText(fmt.Sprintf("Processing... (item %d/%d)", done, total))
+		}
 	}
 
 	closeDialog = func() {

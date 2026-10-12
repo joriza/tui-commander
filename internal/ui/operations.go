@@ -16,7 +16,9 @@ type OperationRunner struct {
 	cancel     context.CancelFunc
 	eventCh    <-chan any
 	onDone     func(result OperationResult)
-	progressCb func(done, total int)
+	progressCb func(done, total int, doneBytes, totalBytes int64)
+	totalBytes int64
+	doneBytes  int64
 }
 
 // OperationResult holds the outcome of an operation.
@@ -49,7 +51,7 @@ func (r *OperationRunner) OnDone(fn func(result OperationResult)) *OperationRunn
 }
 
 // OnProgress sets the progress callback.
-func (r *OperationRunner) OnProgress(fn func(done, total int)) *OperationRunner {
+func (r *OperationRunner) OnProgress(fn func(done, total int, doneBytes, totalBytes int64)) *OperationRunner {
 	r.progressCb = fn
 	return r
 }
@@ -66,8 +68,13 @@ func (r *OperationRunner) run(app *App) {
 
 	for event := range r.eventCh {
 		switch e := event.(type) {
+		case core.QueueTotals:
+			r.totalBytes = e.TotalBytes
+			total = e.TotalItems
 		case core.ItemStarted:
 			total++
+		case core.ItemProgress:
+			r.doneBytes = e.BytesSoFar
 		case core.ItemDone:
 			done++
 		case core.ItemError:
@@ -90,7 +97,7 @@ func (r *OperationRunner) run(app *App) {
 
 		if r.progressCb != nil {
 			app.tviewApp.QueueUpdateDraw(func() {
-				r.progressCb(done, total)
+				r.progressCb(done, total, r.doneBytes, r.totalBytes)
 			})
 		}
 	}

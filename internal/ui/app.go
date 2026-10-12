@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -64,7 +65,7 @@ func (a *App) buildUI() {
 
 	// Key bar at the bottom
 	a.keyBar = tview.NewTextView()
-	a.keyBar.SetText("Tab Panel  F5 Copy  F6 Move  F7 MkDir  F8 Del  F10 Quit")
+	a.keyBar.SetText("Tab Panel  F5 Copy  Shift+F5 Dup  F6 Move  Shift+F6 Ren  F7 MkDir  F8 Del  F10 Quit")
 
 	// Two panels side by side
 	panelsFlex := tview.NewFlex().
@@ -251,6 +252,22 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 		a.setCursor(len(a.focusedPanel().Entries()) - 1)
 		return nil
 
+	case event.Key() == tcell.KeyF5 && event.Modifiers()&tcell.ModShift != 0:
+		a.duplicateDialog()
+		return nil
+
+	case event.Key() == tcell.KeyF5:
+		a.copyDialog()
+		return nil
+
+	case event.Key() == tcell.KeyF6 && event.Modifiers()&tcell.ModShift != 0:
+		a.renameDialog()
+		return nil
+
+	case event.Key() == tcell.KeyF6:
+		a.moveRenameDialog()
+		return nil
+
 	case event.Key() == tcell.KeyF7:
 		a.mkdirDialog()
 		return nil
@@ -402,8 +419,8 @@ func (a *App) runDelete(panel *core.Panel, entry core.Entry) {
 	updateProgress, closeProgress := a.ShowProgressDialog(progressTitle)
 
 	runner.
-		OnProgress(func(done, total int) {
-			updateProgress(done, total)
+		OnProgress(func(done, total int, doneBytes, totalBytes int64) {
+			updateProgress(done, total, doneBytes, totalBytes)
 		}).
 		OnDone(func(result OperationResult) {
 			a.activeCancel = nil
@@ -424,4 +441,292 @@ func (a *App) runDelete(panel *core.Panel, entry core.Entry) {
 		})
 
 	runner.Run(a)
+}
+
+// selectedEntries returns the cursor entry only (v0; T7 will
+// swap the body for multi-selection).
+func (a *App) selectedEntries(panel *core.Panel) []core.Entry {
+	entries := panel.Entries()
+	if len(entries) == 0 {
+		return nil
+	}
+	return []core.Entry{entries[panel.Cursor()]}
+}
+
+// otherPanel returns the panel that is not the given one.
+func (a *App) otherPanel(panel *core.Panel) *core.Panel {
+	if panel == a.leftPanel {
+		return a.rightPanel
+	}
+	return a.leftPanel
+}
+
+// copyDialog shows a form dialog to copy the cursor entry of
+// the focused panel to a destination path. On OK it confirms
+// overwrite if the destination exists, then runs CopyQueue.
+func (a *App) copyDialog() {
+	panel := a.focusedPanel()
+	entries := panel.Entries()
+	if len(entries) == 0 {
+		return
+	}
+	entry := entries[panel.Cursor()]
+
+	other := a.otherPanel(panel)
+	destPath := filepath.Join(other.CurrentPath(), entry.Name)
+
+	input := tview.NewInputField().
+		SetLabel("Destination: ").
+		SetFieldWidth(50).
+		SetText(destPath)
+
+	a.ShowFormDialog("Copy", []tview.FormItem{input}, func(ok bool) {
+		if !ok {
+			return
+		}
+		dest := input.GetText()
+		a.confirmOverwriteAndCopy(panel, entry, dest)
+	})
+}
+
+// duplicateDialog shows a form dialog to duplicate the cursor
+// entry in the same directory with a " - Copy" suffix.
+func (a *App) duplicateDialog() {
+	panel := a.focusedPanel()
+	entries := panel.Entries()
+	if len(entries) == 0 {
+		return
+	}
+	entry := entries[panel.Cursor()]
+	name := entry.Name
+
+	ext := filepath.Ext(name)
+	stem := name[:len(name)-len(ext)]
+	dupName := stem + " - Copy" + ext
+
+	destPath := filepath.Join(panel.CurrentPath(), dupName)
+
+	input := tview.NewInputField().
+		SetLabel("Destination: ").
+		SetFieldWidth(50).
+		SetText(destPath)
+
+	a.ShowFormDialog("Duplicate", []tview.FormItem{input}, func(ok bool) {
+		if !ok {
+			return
+		}
+		dest := input.GetText()
+		a.confirmOverwriteAndCopy(panel, entry, dest)
+	})
+}
+
+// confirmOverwriteAndCopy checks whether the destination exists
+// and, if so, asks for overwrite confirmation before running the
+// copy operation.
+func (a *App) confirmOverwriteAndCopy(sourcePanel *core.Panel, entry core.Entry, dest string) {
+	if _, err := os.Stat(dest); err == nil {
+		a.ShowFormDialog("Destination exists. Overwrite?", []tview.FormItem{
+			tview.NewTextView().SetText(fmt.Sprintf("Overwrite %s?", dest)),
+		}, func(ok bool) {
+			if !ok {
+				return
+			}
+			a.runCopy(sourcePanel, entry, dest, true)
+		})
+		return
+	}
+	a.runCopy(sourcePanel, entry, dest, false)
+}
+
+// runCopy executes a copy queue for the given entry, showing
+// progress and error modals as appropriate.
+func (a *App) runCopy(sourcePanel *core.Panel, entry core.Entry, dest string, overwrite bool) {
+	sourcePath := filepath.Join(sourcePanel.CurrentPath(), entry.Name)
+
+	queue := core.NewCopyQueue([]core.CopyItem{
+		{Source: sourcePath, Dest: dest},
+	}, core.CopyOptions{Overwrite: overwrite})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	a.activeCancel = cancel
+
+	eventCh := queue.Run(ctx)
+	runner := NewOperationRunner(eventCh)
+
+	progressTitle := "Copying " + entry.Name
+	updateProgress, closeProgress := a.ShowProgressDialog(progressTitle)
+
+	runner.
+		OnProgress(func(done, total int, doneBytes, totalBytes int64) {
+			updateProgress(done, total, doneBytes, totalBytes)
+		}).
+		OnDone(func(result OperationResult) {
+			a.activeCancel = nil
+			closeProgress()
+			// Reread the other panel (destination).
+			other := a.otherPanel(sourcePanel)
+			if err := other.Load(other.CurrentPath()); err != nil {
+				a.ShowErrorDialog("Error", fmt.Sprintf("Cannot reload panel: %v", err), nil)
+			}
+			a.render()
+			// Show errors if any.
+			if len(result.Errors) > 0 {
+				var sb strings.Builder
+				for _, err := range result.Errors {
+					fmt.Fprintf(&sb, "- %v\n", err)
+				}
+				a.ShowErrorDialog("Copy errors", sb.String(), nil)
+			}
+		})
+
+	runner.Run(a)
+}
+
+// moveRenameDialog shows a form dialog to move or rename the
+// cursor entry. The destination pre-fills to the other panel's
+// path. On OK it dispatches to MoveQueue or RenamePath.
+func (a *App) moveRenameDialog() {
+	panel := a.focusedPanel()
+	entries := panel.Entries()
+	if len(entries) == 0 {
+		return
+	}
+	entry := entries[panel.Cursor()]
+
+	other := a.otherPanel(panel)
+	destPath := filepath.Join(other.CurrentPath(), entry.Name)
+
+	input := tview.NewInputField().
+		SetLabel("Destination: ").
+		SetFieldWidth(50).
+		SetText(destPath)
+
+	a.ShowFormDialog("Move/Rename", []tview.FormItem{input}, func(ok bool) {
+		if !ok {
+			return
+		}
+		dest := input.GetText()
+		sameDir := core.SameDirectory(
+			filepath.Dir(filepath.Join(panel.CurrentPath(), entry.Name)),
+			filepath.Dir(dest))
+		// Cross-directory moves onto an existing destination must be
+			// confirmed; same-dir renames fail with an error instead.
+		if !sameDir {
+			if _, err := os.Stat(dest); err == nil {
+				a.ShowFormDialog("Destination exists. Overwrite?", []tview.FormItem{
+					tview.NewTextView().SetText(fmt.Sprintf("Overwrite %s?", dest)),
+				}, func(ok bool) {
+					if !ok {
+						return
+					}
+					a.runMoveOrRename(panel, entry, dest, true)
+				})
+				return
+			}
+		}
+		a.runMoveOrRename(panel, entry, dest, false)
+	})
+}
+
+// renameDialog shows a form dialog to rename the cursor entry
+// in-place. The destination pre-fills to the same directory
+// with the same name.
+func (a *App) renameDialog() {
+	panel := a.focusedPanel()
+	entries := panel.Entries()
+	if len(entries) == 0 {
+		return
+	}
+	entry := entries[panel.Cursor()]
+
+	destPath := filepath.Join(panel.CurrentPath(), entry.Name)
+
+	input := tview.NewInputField().
+		SetLabel("New name: ").
+		SetFieldWidth(50).
+		SetText(destPath)
+
+	a.ShowFormDialog("Rename", []tview.FormItem{input}, func(ok bool) {
+		if !ok {
+			return
+		}
+		dest := input.GetText()
+		a.runRename(panel, entry, dest)
+	})
+}
+
+// runMoveOrRename dispatches to RenamePath for same-directory
+// moves or MoveQueue for cross-directory moves.
+func (a *App) runMoveOrRename(sourcePanel *core.Panel, entry core.Entry, dest string, overwrite bool) {
+	sourcePath := filepath.Join(sourcePanel.CurrentPath(), entry.Name)
+
+	if core.SameDirectory(filepath.Dir(sourcePath), filepath.Dir(dest)) {
+		a.runRename(sourcePanel, entry, dest)
+		return
+	}
+
+	// Cross-directory move via MoveQueue.
+	queue := core.NewMoveQueue([]core.MoveItem{
+		{Source: sourcePath, Dest: dest},
+	}, core.MoveOptions{Overwrite: overwrite})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	a.activeCancel = cancel
+
+	eventCh := queue.Run(ctx)
+	runner := NewOperationRunner(eventCh)
+
+	progressTitle := "Moving " + entry.Name
+	updateProgress, closeProgress := a.ShowProgressDialog(progressTitle)
+
+	runner.
+		OnProgress(func(done, total int, doneBytes, totalBytes int64) {
+			updateProgress(done, total, doneBytes, totalBytes)
+		}).
+		OnDone(func(result OperationResult) {
+			a.activeCancel = nil
+			closeProgress()
+			// Reread both panels.
+			if err := sourcePanel.Load(sourcePanel.CurrentPath()); err != nil {
+				a.ShowErrorDialog("Error", fmt.Sprintf("Cannot reload panel: %v", err), nil)
+			}
+			other := a.otherPanel(sourcePanel)
+			if err := other.Load(other.CurrentPath()); err != nil {
+				a.ShowErrorDialog("Error", fmt.Sprintf("Cannot reload panel: %v", err), nil)
+			}
+			a.render()
+			// Show errors if any.
+			if len(result.Errors) > 0 {
+				var sb strings.Builder
+				for _, err := range result.Errors {
+					fmt.Fprintf(&sb, "- %v\n", err)
+				}
+				a.ShowErrorDialog("Move errors", sb.String(), nil)
+			}
+		})
+
+	runner.Run(a)
+}
+
+// runRename calls core.RenamePath for same-directory rename
+// (no progress modal). On success both panels are reread.
+func (a *App) runRename(sourcePanel *core.Panel, entry core.Entry, dest string) {
+	sourcePath := filepath.Join(sourcePanel.CurrentPath(), entry.Name)
+	newName := filepath.Base(dest)
+
+	err := core.RenamePath(sourcePath, newName)
+	if err != nil {
+		a.ShowErrorDialog("Error", fmt.Sprintf("Cannot rename: %v", err), nil)
+		return
+	}
+
+	// Reread both panels.
+	if err := sourcePanel.Load(sourcePanel.CurrentPath()); err != nil {
+		a.ShowErrorDialog("Error", fmt.Sprintf("Cannot reload panel: %v", err), nil)
+	}
+	other := a.otherPanel(sourcePanel)
+	if err := other.Load(other.CurrentPath()); err != nil {
+		a.ShowErrorDialog("Error", fmt.Sprintf("Cannot reload panel: %v", err), nil)
+	}
+	a.render()
 }
