@@ -187,7 +187,7 @@ func (q *CopyQueue) run(ctx context.Context, ch chan<- any) {
 
 		// Perform the copy.
 		itemStartBytes := copiedBytes
-		err = q.copyItem(ctx, item.Source, item.Dest, copiedBytes, func(n int64) {
+		err = q.copyItem(ctx, item.Source, item.Dest, func(n int64) {
 			copiedBytes = itemStartBytes + n
 			ch <- ItemProgress{Index: i, BytesSoFar: copiedBytes}
 		})
@@ -232,7 +232,7 @@ func (q *CopyQueue) preWalk() (int64, int) {
 }
 
 // copyItem copies a single item (file or directory) from src to dst.
-func (q *CopyQueue) copyItem(ctx context.Context, src, dst string, _ int64, onProgress func(int64)) error {
+func (q *CopyQueue) copyItem(ctx context.Context, src, dst string, onProgress func(int64)) error {
 	srcInfo, err := os.Stat(src)
 	if err != nil {
 		return err
@@ -436,4 +436,3 @@ func isInsideSource(source, dest string) bool {
 	}
 	return strings.HasPrefix(dest, source+string(filepath.Separator))
 }
-
