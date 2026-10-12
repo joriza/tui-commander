@@ -113,9 +113,17 @@ func (a *App) renderPanel(panel *core.Panel, view *tview.TextView, focused bool)
 		mtimeStr := e.ModTime.Format("2006-01-02 15:04")
 
 		line := fmt.Sprintf("%-30s  %10s  %s", e.Name, sizeStr, mtimeStr)
+		// Pad so the cursor highlight spans the full row width.
+		line = fmt.Sprintf("%-100s", line)
 
 		if i == cursor {
-			fmt.Fprintf(view, "[reverse]%s[-]\n", line)
+			// High-visibility full-row bar: bright green on the focused
+			// panel, dim grey on the other (both cursors visible, TC style).
+			if focused {
+				fmt.Fprintf(view, "[black:green]%s[-]\n", line)
+			} else {
+				fmt.Fprintf(view, "[black:gray]%s[-]\n", line)
+			}
 		} else {
 			fmt.Fprintf(view, "%s\n", line)
 		}
@@ -147,6 +155,10 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 
 	case event.Key() == tcell.KeyEnter:
 		a.enter()
+		return nil
+
+	case event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2:
+		a.parentDir()
 		return nil
 
 	case event.Key() == tcell.KeyPgUp && event.Modifiers()&tcell.ModCtrl != 0:
