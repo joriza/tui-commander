@@ -12,6 +12,7 @@ bug fix or behavior decision appends a row here in the same commit.**
 | C2 | Nesting the marshalling primitive inside a queued update self-deadlocks (unbuffered internal channel: the nested send waits for a loop iteration that cannot start until the outer update returns). Symptom: operation completes on disk, progress dialog never closes. | Callbacks delivered by a runner/queue are already on the UI thread. UI-facing helpers they call must mutate state directly. Never re-marshal inside marshalled code. |
 | C3 | Diagnose UI deadlocks empirically: headless harness with a simulation screen + temporary event tracing found in minutes what pure reasoning could not. | Reproduce first, fix second. Remove harness/traces before commit. |
 | C4 | Invisible dialogs look exactly like freezes. | Every modal gets a visible border and title from day one. |
+| C5 | Modals stretched to full screen height: the layout container gave the content proportional size instead of its natural size. | Size dialogs to their content (rows of items/text + chrome); cap scrollable overflows (error list ≤ 20 rows). Flutter analogue: size dialogs to child, never expand. |
 
 ## Text rendering & styling
 
