@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"context"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/gdamore/tcell/v2"
@@ -14,13 +16,16 @@ import (
 // The UI layer performs no filesystem logic; all panel state comes
 // from core.Panel.
 type App struct {
-	leftPanel  *core.Panel
-	rightPanel *core.Panel
-	leftView   *tview.TextView
-	rightView  *tview.TextView
-	focusIndex int // 0 = left panel, 1 = right panel
-	tviewApp   *tview.Application
-	keyBar     *tview.TextView
+	leftPanel    *core.Panel
+	rightPanel   *core.Panel
+	leftView     *tview.TextView
+	rightView    *tview.TextView
+	focusIndex   int // 0 = left panel, 1 = right panel
+	tviewApp     *tview.Application
+	keyBar       *tview.TextView
+	pages        *tview.Pages
+	dialogStack  []string
+	activeCancel context.CancelFunc
 }
 
 // NewApp creates a new dual-panel App with the given panels.
@@ -72,7 +77,11 @@ func (a *App) buildUI() {
 		AddItem(panelsFlex, 0, 1, false).
 		AddItem(a.keyBar, 1, 0, false)
 
-	a.tviewApp.SetRoot(rootFlex, true)
+	// Pages as root; "main" page holds the existing layout.
+	a.pages = tview.NewPages()
+	a.pages.AddPage("main", rootFlex, true, true)
+
+	a.tviewApp.SetRoot(a.pages, true)
 
 	// Global key capture
 	a.tviewApp.SetInputCapture(a.handleKey)
@@ -174,7 +183,29 @@ func formatSize(size int64) string {
 }
 
 // handleKey processes global key events for navigation and focus switching.
+// When a dialog is open, only Esc (close dialog) and F10 (quit) are handled
+// at the app level; all other keys pass through to the focused dialog.
 func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
+	// Dialog is open: only Esc and F10 are handled here.
+	if len(a.dialogStack) > 0 {
+		switch {
+		case event.Key() == tcell.KeyEscape:
+			a.closeTopDialog()
+			if a.activeCancel != nil {
+				a.activeCancel()
+				a.activeCancel = nil
+			}
+			return nil
+
+		case event.Key() == tcell.KeyF10:
+			a.tviewApp.Stop()
+			return nil
+		}
+		// Pass all other keys through to the dialog primitive.
+		return event
+	}
+
+	// No dialog open: normal key handling.
 	switch {
 	case event.Key() == tcell.KeyTab:
 		a.switchFocus()
@@ -220,7 +251,15 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 		a.setCursor(len(a.focusedPanel().Entries()) - 1)
 		return nil
 
-	case event.Key() == tcell.KeyF10 || event.Key() == tcell.KeyEscape:
+	case event.Key() == tcell.KeyF7:
+		a.mkdirDialog()
+		return nil
+
+	case event.Key() == tcell.KeyF8 || event.Key() == tcell.KeyDelete:
+		a.deleteDialog()
+		return nil
+
+	case event.Key() == tcell.KeyF10:
 		a.tviewApp.Stop()
 		return nil
 	}
@@ -297,4 +336,92 @@ func (a *App) parentDir() {
 		return
 	}
 	a.render()
+}
+
+// mkdirDialog shows a form dialog to create a new directory under the
+// focused panel's current path. On success the panel is reread.
+func (a *App) mkdirDialog() {
+	panel := a.focusedPanel()
+
+	input := tview.NewInputField().
+		SetLabel("Directory name: ").
+		SetFieldWidth(30)
+
+	a.ShowFormDialog("New directory", []tview.FormItem{input}, func(ok bool) {
+		if !ok {
+			return
+		}
+		name := input.GetText()
+		if err := core.MakeDir(panel.CurrentPath(), name); err != nil {
+			a.ShowErrorDialog("Error", fmt.Sprintf("Cannot create directory: %v", err), nil)
+		} else {
+			if err := panel.Load(panel.CurrentPath()); err != nil {
+				a.ShowErrorDialog("Error", fmt.Sprintf("Cannot reload panel: %v", err), nil)
+			}
+			a.render()
+		}
+	})
+}
+
+// deleteDialog shows a confirmation dialog for deleting the cursor entry
+// of the focused panel. On confirmation the deletion runs in a goroutine
+// with a progress modal; Esc cancels the operation.
+func (a *App) deleteDialog() {
+	panel := a.focusedPanel()
+	entries := panel.Entries()
+	if len(entries) == 0 {
+		return
+	}
+	entry := entries[panel.Cursor()]
+	name := entry.Name
+
+	a.ShowFormDialog("Delete", []tview.FormItem{
+		tview.NewTextView().SetText(fmt.Sprintf("Delete %s? (permanent)", name)),
+	}, func(ok bool) {
+		if !ok {
+			return
+		}
+		a.runDelete(panel, entry)
+	})
+}
+
+// runDelete executes a delete queue for the given entry, showing progress
+// and error modals as appropriate.
+func (a *App) runDelete(panel *core.Panel, entry core.Entry) {
+	path := panel.CurrentPath()
+	fullPath := filepath.Join(path, entry.Name)
+
+	queue := core.NewDeleteQueue([]string{fullPath}, core.DeleteOptions{})
+	ctx, cancel := context.WithCancel(context.Background())
+	a.activeCancel = cancel
+
+	eventCh := queue.Run(ctx)
+	runner := NewOperationRunner(eventCh)
+
+	progressTitle := "Deleting " + entry.Name
+	updateProgress, closeProgress := a.ShowProgressDialog(progressTitle)
+
+	runner.
+		OnProgress(func(done, total int) {
+			updateProgress(done, total)
+		}).
+		OnDone(func(result OperationResult) {
+			a.activeCancel = nil
+			closeProgress()
+			// Reread the focused panel.
+			if err := panel.Load(panel.CurrentPath()); err != nil {
+				a.ShowErrorDialog("Error", fmt.Sprintf("Cannot reload panel: %v", err), nil)
+			}
+			a.render()
+			// Show errors if any.
+			if len(result.Errors) > 0 {
+				var sb strings.Builder
+				for _, err := range result.Errors {
+					fmt.Fprintf(&sb, "- %v\n", err)
+				}
+				a.ShowErrorDialog("Delete errors", sb.String(), nil)
+			}
+		})
+
+	runner.Run(a)
 }
