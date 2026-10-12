@@ -47,7 +47,7 @@ copy-and-run, portable from a USB stick.
 - [x] T2: Core path platform adapter — Windows long-path handling, name
       validation (reserved names, trailing dots/spaces), cross-platform join
       and display formatting; unit tests (test-first).
-- [ ] T3: Core copy engine — selection set → sequential queue → per-item +
+- [x] T3: Core copy engine — selection set → sequential queue → per-item +
       total progress → cancellation; error collection per item; unit tests
       with temp filesystem (test-first).
 - [ ] T4: Core move/delete/rename/mkdir — move reuses copy engine (rename
@@ -68,6 +68,7 @@ copy-and-run, portable from a USB stick.
 | --- | --- | --- |
 | T1 | `f290617` (branch `tui-v0`) | `go build ./...`, `go vet ./...`, `go test ./...` all green; observed directly by parent session (build, vet, test rerun). Visual smoke confirmed by user: dual panels render with bottom key bar |
 | T2 | `36cdd2e` (branch `tui-v0`) | RED observed (undefined API + 2 failing + 1 test-setup bug caught) → GREEN: 23 tests on windows/amd64 (`-count=1` rerun), `GOOS=linux` cross-compile build+test, `go vet` clean; all observed directly by parent session |
+| T3 | `99d3d9a` (branch `tui-v0`) | 40 tests green (`-count=1`), vet clean, `GOOS=linux` build+test-compile; race detector skipped — CGO unavailable on this machine (confirmed by parent). Caveat: worker sessions ended twice without final reports; RED observation was not independently captured; parent finished the last step inline (removed debug scratch tests, folded a clean pre-cancelled-context test into copy_test.go) and verified everything directly |
 
 ## Decisions log
 
