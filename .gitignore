@@ -1,0 +1,22 @@
+# Binaries
+*.exe
+*.exe~
+tui-commander
+tui-commander.exe
+
+# Test and coverage artifacts
+*.test
+*.out
+coverage/
+
+# Go workspace
+vendor/
+
+# Editor
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
