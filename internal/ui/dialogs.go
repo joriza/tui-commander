@@ -6,6 +6,13 @@ import (
 	"github.com/rivo/tview"
 )
 
+// Dialog helpers run on the UI goroutine: tview event handlers and
+// OperationRunner's OnDone callback are already marshalled there via
+// QueueUpdateDraw. Calling QueueUpdateDraw from these paths would
+// deadlock the event loop (it blocks until the next draw, which cannot
+// happen while a handler is still running). The only cross-goroutine
+// call below is updateProgress, invoked from the operation goroutine.
+
 // ShowFormDialog displays a centered modal dialog with a form containing
 // the given items. The dialog has a fixed width of approximately 60
 // characters. Enter triggers OK, Esc triggers Cancel. The callback is
@@ -16,23 +23,15 @@ func (a *App) ShowFormDialog(title string, items []tview.FormItem, callback func
 		form.AddFormItem(item)
 	}
 	form.AddButton("OK", func() {
-		a.tviewApp.QueueUpdateDraw(func() {
-			a.closeTopDialog()
-			callback(true)
-		})
+		a.closeTopDialog()
+		callback(true)
 	}).AddButton("Cancel", func() {
-		a.tviewApp.QueueUpdateDraw(func() {
-			a.closeTopDialog()
-			callback(false)
-		})
+		a.closeTopDialog()
+		callback(false)
 	})
 
-	dialog := a.wrapDialog(form)
-
-	a.tviewApp.QueueUpdateDraw(func() {
-		a.pages.AddPage(title, dialog, true, true)
-		a.dialogStack = append(a.dialogStack, title)
-	})
+	a.pages.AddPage(title, a.wrapDialog(form), true, true)
+	a.dialogStack = append(a.dialogStack, title)
 }
 
 // ShowMessageDialog displays a modal dialog with a message and an OK button.
@@ -44,20 +43,14 @@ func (a *App) ShowMessageDialog(title, message string, callback func()) {
 	form := tview.NewForm().
 		AddFormItem(textView).
 		AddButton("OK", func() {
-			a.tviewApp.QueueUpdateDraw(func() {
-				a.closeTopDialog()
-				if callback != nil {
-					callback()
-				}
-			})
+			a.closeTopDialog()
+			if callback != nil {
+				callback()
+			}
 		})
 
-	dialog := a.wrapDialog(form)
-
-	a.tviewApp.QueueUpdateDraw(func() {
-		a.pages.AddPage(title, dialog, true, true)
-		a.dialogStack = append(a.dialogStack, title)
-	})
+	a.pages.AddPage(title, a.wrapDialog(form), true, true)
+	a.dialogStack = append(a.dialogStack, title)
 }
 
 // ShowErrorDialog displays a modal dialog with an error message and an OK
@@ -71,35 +64,27 @@ func (a *App) ShowErrorDialog(title, message string, callback func()) {
 	form := tview.NewForm().
 		AddFormItem(textView).
 		AddButton("OK", func() {
-			a.tviewApp.QueueUpdateDraw(func() {
-				a.closeTopDialog()
-				if callback != nil {
-					callback()
-				}
-			})
+			a.closeTopDialog()
+			if callback != nil {
+				callback()
+			}
 		})
 
-	dialog := a.wrapDialog(form)
-
-	a.tviewApp.QueueUpdateDraw(func() {
-		a.pages.AddPage(title, dialog, true, true)
-		a.dialogStack = append(a.dialogStack, title)
-	})
+	a.pages.AddPage(title, a.wrapDialog(form), true, true)
+	a.dialogStack = append(a.dialogStack, title)
 }
 
-// ShowProgressDialog displays a modal progress dialog and returns
-// functions to update the progress text and close the dialog.
+// ShowProgressDialog displays a modal progress dialog and returns two
+// functions: updateProgress must be called from the operation goroutine
+// (it marshals onto the UI thread itself), and closeDialog must be called
+// from the UI goroutine (e.g. inside OnDone).
 func (a *App) ShowProgressDialog(title string) (updateProgress func(done, total int), closeDialog func()) {
 	textView := tview.NewTextView().
 		SetDynamicColors(true)
 	textView.SetText("Processing...")
 
-	dialog := a.wrapDialog(textView)
-
-	a.tviewApp.QueueUpdateDraw(func() {
-		a.pages.AddPage(title, dialog, true, true)
-		a.dialogStack = append(a.dialogStack, title)
-	})
+	a.pages.AddPage(title, a.wrapDialog(textView), true, true)
+	a.dialogStack = append(a.dialogStack, title)
 
 	updateProgress = func(done, total int) {
 		a.tviewApp.QueueUpdateDraw(func() {
@@ -108,9 +93,7 @@ func (a *App) ShowProgressDialog(title string) (updateProgress func(done, total 
 	}
 
 	closeDialog = func() {
-		a.tviewApp.QueueUpdateDraw(func() {
-			a.closeTopDialog()
-		})
+		a.closeTopDialog()
 	}
 
 	return updateProgress, closeDialog
