@@ -22,6 +22,9 @@ func (a *App) ShowFormDialog(title string, items []tview.FormItem, callback func
 	for _, item := range items {
 		form.AddFormItem(item)
 	}
+	form.SetBorder(true).
+		SetTitle(fmt.Sprintf(" %s ", title)).
+		SetTitleAlign(tview.AlignCenter)
 	form.AddButton("OK", func() {
 		a.closeTopDialog()
 		callback(true)
@@ -48,6 +51,9 @@ func (a *App) ShowMessageDialog(title, message string, callback func()) {
 				callback()
 			}
 		})
+	form.SetBorder(true).
+		SetTitle(fmt.Sprintf(" %s ", title)).
+		SetTitleAlign(tview.AlignCenter)
 
 	a.pages.AddPage(title, a.wrapDialog(form), true, true)
 	a.dialogStack = append(a.dialogStack, title)
@@ -69,27 +75,32 @@ func (a *App) ShowErrorDialog(title, message string, callback func()) {
 				callback()
 			}
 		})
+	form.SetBorder(true).
+		SetTitle(fmt.Sprintf(" %s ", title)).
+		SetTitleAlign(tview.AlignCenter)
 
 	a.pages.AddPage(title, a.wrapDialog(form), true, true)
 	a.dialogStack = append(a.dialogStack, title)
 }
 
 // ShowProgressDialog displays a modal progress dialog and returns two
-// functions: updateProgress must be called from the operation goroutine
-// (it marshals onto the UI thread itself), and closeDialog must be called
-// from the UI goroutine (e.g. inside OnDone).
+// functions: both must be called from the UI goroutine (OperationRunner
+// already marshals OnProgress and OnDone there). They must never call
+// QueueUpdateDraw — nesting it inside a queued update self-deadlocks the
+// event loop: the inner send waits for a loop iteration that cannot start
+// until the outer update returns.
 func (a *App) ShowProgressDialog(title string) (updateProgress func(done, total int), closeDialog func()) {
 	textView := tview.NewTextView().
 		SetDynamicColors(true)
+	textView.SetBorder(true).
+		SetTitle(fmt.Sprintf(" %s ", title))
 	textView.SetText("Processing...")
 
 	a.pages.AddPage(title, a.wrapDialog(textView), true, true)
 	a.dialogStack = append(a.dialogStack, title)
 
 	updateProgress = func(done, total int) {
-		a.tviewApp.QueueUpdateDraw(func() {
-			textView.SetText(fmt.Sprintf("Processing... %d/%d", done, total))
-		})
+		textView.SetText(fmt.Sprintf("Processing... %d/%d", done, total))
 	}
 
 	closeDialog = func() {
