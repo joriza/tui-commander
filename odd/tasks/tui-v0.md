@@ -53,7 +53,7 @@ copy-and-run, portable from a USB stick.
 - [x] T4: Core move/delete/rename/mkdir — move reuses copy engine (rename
       fast path when same volume), delete with explicit attribute handling;
       unit tests (test-first).
-- [ ] T5: Dual panel UI — real listings, per-panel state, cursor, sorting,
+- [x] T5: Dual panel UI — real listings, per-panel state, cursor, sorting,
       focus switching (S1, S2).
 - [ ] T6: F-key wiring — TC-standard bindings: F5 copy, F6 shared
       move-or-rename dialog, Shift+F6 rename in place, Shift+F5 duplicate,
@@ -74,6 +74,7 @@ Space, +, -, * on main-row keys.
 | T2 | `36cdd2e` (branch `tui-v0`) | RED observed (undefined API + 2 failing + 1 test-setup bug caught) → GREEN: 23 tests on windows/amd64 (`-count=1` rerun), `GOOS=linux` cross-compile build+test, `go vet` clean; all observed directly by parent session |
 | T3 | `99d3d9a` (branch `tui-v0`) | 40 tests green (`-count=1`), vet clean, `GOOS=linux` build+test-compile; race detector skipped — CGO unavailable on this machine (confirmed by parent). Caveat: worker sessions ended twice without final reports; RED observation was not independently captured; parent finished the last step inline (removed debug scratch tests, folded a clean pre-cancelled-context test into copy_test.go) and verified everything directly |
 | T4 | `babf371` (branch `tui-v0`) | RED observed (RemoveAll nil for nonexistent sources → Stat check added) → GREEN: 66 tests (`-count=1`), vet clean, `GOOS=linux` build+test compile; all observed directly by parent session |
+| T5 | `9a90bf1` (branch `tui-v0`) | Panel RED→GREEN per worker (RED tail not independently captured — worker report truncated, third occurrence); parent verified directly: 81 tests green (`-count=1`), vet clean, linux build+test compile, keyboard bindings reviewed line-by-line (Tab/Enter/Ctrl+PgUp/arrows/Home/End/F10/Esc). Visual smoke: pending user partial test |
 
 ## Decisions log
 
