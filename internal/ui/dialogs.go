@@ -18,7 +18,9 @@ import (
 // the given items. The dialog has a fixed width of approximately 60
 // characters. Enter triggers OK, Esc triggers Cancel. The callback is
 // invoked on the UI goroutine with true for OK, false for Cancel.
-func (a *App) ShowFormDialog(title string, items []tview.FormItem, callback func(bool)) {
+// extraRows adds additional rows to the dialog height (useful for
+// confirmation dialogs that need more vertical space).
+func (a *App) ShowFormDialog(title string, items []tview.FormItem, extraRows int, callback func(bool)) {
 	form := tview.NewForm()
 	for _, item := range items {
 		form.AddFormItem(item)
@@ -34,7 +36,7 @@ func (a *App) ShowFormDialog(title string, items []tview.FormItem, callback func
 		callback(false)
 	})
 
-	a.pages.AddPage(title, a.wrapDialog(form, len(items)+5), true, true)
+	a.pages.AddPage(title, a.wrapDialog(form, len(items)+5+extraRows), true, true)
 	a.dialogStack = append(a.dialogStack, title)
 }
 
@@ -89,28 +91,65 @@ func (a *App) ShowErrorDialog(title, message string, callback func()) {
 	a.dialogStack = append(a.dialogStack, title)
 }
 
-// ShowProgressDialog displays a modal progress dialog and returns two
-// functions: both must be called from the UI goroutine (OperationRunner
-// already marshals OnProgress and OnDone there). They must never call
-// QueueUpdateDraw — nesting it inside a queued update self-deadlocks the
-// event loop: the inner send waits for a loop iteration that cannot start
-// until the outer update returns.
-func (a *App) ShowProgressDialog(title string) (updateProgress func(done, total int, doneBytes, totalBytes int64), closeDialog func()) {
+// ShowProgressDialog displays a modal progress dialog with dual
+// progress bars, file/current-item name, ETA, and throughput.
+// It returns two functions: both must be called from the UI goroutine
+// (OperationRunner already marshals OnProgress and OnDone there).
+// They must never call QueueUpdateDraw — nesting it inside a queued
+// update self-deadlocks the event loop.
+func (a *App) ShowProgressDialog(title string) (updateProgress func(currentName string, fileBytes, fileSize int64, done, total int, doneBytes, totalBytes int64, eta ProgressETA), closeDialog func()) {
 	textView := tview.NewTextView().
 		SetDynamicColors(true)
 	textView.SetBorder(true).
 		SetTitle(fmt.Sprintf(" %s ", title))
 	textView.SetText("Processing...")
 
-	a.pages.AddPage(title, a.wrapDialog(textView, 3), true, true)
+	a.pages.AddPage(title, a.wrapDialog(textView, 7), true, true)
 	a.dialogStack = append(a.dialogStack, title)
 
-	updateProgress = func(done, total int, doneBytes, totalBytes int64) {
-		if totalBytes > 0 {
-			textView.SetText(fmt.Sprintf("Processing... %s / %s (item %d/%d)", formatSize(doneBytes), formatSize(totalBytes), done, total))
-		} else {
-			textView.SetText(fmt.Sprintf("Processing... (item %d/%d)", done, total))
+	updateProgress = func(currentName string, fileBytes, fileSize int64, done, total int, doneBytes, totalBytes int64, eta ProgressETA) {
+		var sb strings.Builder
+		// Line 1: current file name (truncated).
+		name := currentName
+		if len(name) > 30 {
+			name = name[len(name)-30:]
 		}
+		fmt.Fprintf(&sb, "%s\n", name)
+
+		// Line 2: file progress bar.
+		filePct := 0
+		var fileBar string
+		if fileSize > 0 {
+			filePct = int(float64(fileBytes) / float64(fileSize) * 100)
+			filled := int(float64(fileBytes) / float64(fileSize) * 20)
+			if filled > 20 {
+				filled = 20
+			}
+			fileBar = fmt.Sprintf("[black:darkgreen]%s[-] %d%%", progressBar(filled), filePct)
+		} else {
+			fileBar = fmt.Sprintf("%s indeterminate", progressBar(0))
+		}
+		fmt.Fprintf(&sb, "%s\n", fileBar)
+
+		// Line 3: total progress bar.
+		totalPct := 0
+		var totalBar string
+		if totalBytes > 0 {
+			totalPct = int(float64(doneBytes) / float64(totalBytes) * 100)
+			filled := int(float64(doneBytes) / float64(totalBytes) * 20)
+			if filled > 20 {
+				filled = 20
+			}
+			totalBar = fmt.Sprintf("[black:darkgreen]%s[-] %d%% (%d/%d)", progressBar(filled), totalPct, done, total)
+		} else {
+			totalBar = fmt.Sprintf("%s %d/%d", progressBar(0), done, total)
+		}
+		fmt.Fprintf(&sb, "%s\n", totalBar)
+
+		// Line 4: ETA + speed.
+		fmt.Fprintf(&sb, "ETA: %s  %s", eta.Remaining, formatETARate(eta.RateMBs))
+
+		textView.SetText(sb.String())
 	}
 
 	closeDialog = func() {
@@ -118,6 +157,26 @@ func (a *App) ShowProgressDialog(title string) (updateProgress func(done, total 
 	}
 
 	return updateProgress, closeDialog
+}
+
+// progressBar returns a 20-cell progress bar string.
+// filled is the number of filled cells (0-20).
+func progressBar(filled int) string {
+	if filled < 0 {
+		filled = 0
+	}
+	if filled > 20 {
+		filled = 20
+	}
+	return strings.Repeat("█", filled) + strings.Repeat("░", 20-filled)
+}
+
+// formatETARate formats a throughput rate in MB/s for display.
+func formatETARate(rateMBs float64) string {
+	if rateMBs <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s/s", formatSize(int64(rateMBs * 1024 * 1024)))
 }
 
 // wrapDialog wraps a primitive in a centered container with a fixed width

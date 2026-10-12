@@ -67,16 +67,18 @@ func TestMoveQueue_SameVolume_FastPath(t *testing.T) {
 		t.Errorf("expected no ItemProgress events for same-volume fast path, got %d", len(progressEvents))
 	}
 
-	var started ItemStarted
-	if _, ok := firstEvent[ItemStarted](events); !ok {
+	started, ok := firstEvent[ItemStarted](events)
+	if !ok {
 		t.Fatal("expected ItemStarted event")
+	}
+	if started.Size != int64(len("hello world")) {
+		t.Errorf("ItemStarted.Size = %d, want %d", started.Size, int64(len("hello world")))
 	}
 	var done ItemDone
 	if _, ok := firstEvent[ItemDone](events); !ok {
 		t.Fatal("expected ItemDone event")
 	}
 	_ = done
-	_ = started
 
 	var qd QueueDone
 	if _, ok := firstEvent[QueueDone](events); !ok {
@@ -123,6 +125,19 @@ func TestMoveQueue_FallbackForced(t *testing.T) {
 	progressEvents := findEvent[ItemProgress](events)
 	if len(progressEvents) == 0 {
 		t.Error("expected ItemProgress events for fallback copy path")
+	}
+
+	// ItemStarted.Size for a directory item should equal total tree bytes.
+	expectedBytes := int64(len("file a") + len("file b"))
+	var started ItemStarted
+	for _, e := range events {
+		if v, ok := e.(ItemStarted); ok {
+			started = v
+			break
+		}
+	}
+	if started.Size != expectedBytes {
+		t.Errorf("ItemStarted.Size = %d, want %d (total tree bytes)", started.Size, expectedBytes)
 	}
 
 	var qd QueueDone
@@ -333,6 +348,39 @@ func TestMoveQueue_EmptyQueue(t *testing.T) {
 	}
 	if qd.Err != nil {
 		t.Errorf("QueueDone.Err = %v, want nil", qd.Err)
+	}
+}
+
+// TestMoveQueue_ItemStartedSizePopulated verifies that ItemStarted.Size
+// is populated for each move item (file size for files, tree bytes for dirs).
+func TestMoveQueue_ItemStartedSizePopulated(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := t.TempDir()
+
+	f1 := writeFileMtime(t, srcDir, "f1.txt", []byte("hello"), time.Now())
+	f2 := writeFileMtime(t, srcDir, "f2.txt", []byte("world!!"), time.Now())
+
+	q := NewMoveQueue([]MoveItem{
+		{Source: f1, Dest: filepath.Join(dstDir, "f1.txt")},
+		{Source: f2, Dest: filepath.Join(dstDir, "f2.txt")},
+	}, MoveOptions{ForceFallback: true})
+	ch := q.Run(context.Background())
+	events := collectEvents(t, ch)
+
+	var starteds []ItemStarted
+	for _, e := range events {
+		if v, ok := e.(ItemStarted); ok {
+			starteds = append(starteds, v)
+		}
+	}
+	if len(starteds) != 2 {
+		t.Fatalf("expected 2 ItemStarted events, got %d", len(starteds))
+	}
+	if starteds[0].Size != int64(len("hello")) {
+		t.Errorf("ItemStarted[0].Size = %d, want %d", starteds[0].Size, int64(len("hello")))
+	}
+	if starteds[1].Size != int64(len("world!!")) {
+		t.Errorf("ItemStarted[1].Size = %d, want %d", starteds[1].Size, int64(len("world!!")))
 	}
 }
 

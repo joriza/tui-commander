@@ -101,8 +101,12 @@ func TestCopyQueue_SingleFile_CopyContentAndMtime(t *testing.T) {
 		t.Errorf("mtime not preserved: expected %v, got %v", mtime, stat.ModTime())
 	}
 
-	if _, ok := firstEvent[ItemStarted](events); !ok {
+	started, ok := firstEvent[ItemStarted](events)
+	if !ok {
 		t.Fatal("expected ItemStarted event")
+	}
+	if started.Size != int64(len("hello world")) {
+		t.Errorf("ItemStarted.Size = %d, want %d", started.Size, int64(len("hello world")))
 	}
 
 	if _, ok := firstEvent[ItemDone](events); !ok {
@@ -168,6 +172,18 @@ func TestCopyQueue_RecursiveTreeCopy(t *testing.T) {
 	if totals.TotalBytes != expectedBytes {
 		t.Errorf("TotalBytes = %d, want %d", totals.TotalBytes, expectedBytes)
 	}
+
+	// ItemStarted.Size for a directory item should equal total tree bytes.
+	var started ItemStarted
+	for _, e := range events {
+		if v, ok := e.(ItemStarted); ok {
+			started = v
+			break
+		}
+	}
+	if started.Size != expectedBytes {
+		t.Errorf("ItemStarted.Size = %d, want %d (total tree bytes)", started.Size, expectedBytes)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -197,6 +213,23 @@ func TestCopyQueue_TotalsCorrectness(t *testing.T) {
 	}
 	if totals.TotalItems != 2 {
 		t.Errorf("TotalItems = %d, want 2", totals.TotalItems)
+	}
+
+	// Each ItemStarted.Size should match the source file size.
+	var starteds []ItemStarted
+	for _, e := range events {
+		if v, ok := e.(ItemStarted); ok {
+			starteds = append(starteds, v)
+		}
+	}
+	if len(starteds) != 2 {
+		t.Fatalf("expected 2 ItemStarted events, got %d", len(starteds))
+	}
+	if starteds[0].Size != 5 {
+		t.Errorf("ItemStarted[0].Size = %d, want 5", starteds[0].Size)
+	}
+	if starteds[1].Size != 10 {
+		t.Errorf("ItemStarted[1].Size = %d, want 10", starteds[1].Size)
 	}
 }
 
@@ -674,6 +707,23 @@ func TestCopyQueue_ItemProgressIndex(t *testing.T) {
 		if p.Index < 0 {
 			t.Errorf("ItemProgress.Index = %d, want >= 0", p.Index)
 		}
+	}
+
+	// ItemStarted.Size must be populated for each file item.
+	var starteds []ItemStarted
+	for _, e := range events {
+		if v, ok := e.(ItemStarted); ok {
+			starteds = append(starteds, v)
+		}
+	}
+	if len(starteds) != 2 {
+		t.Fatalf("expected 2 ItemStarted events, got %d", len(starteds))
+	}
+	if starteds[0].Size != int64(len("content1")) {
+		t.Errorf("ItemStarted[0].Size = %d, want %d", starteds[0].Size, int64(len("content1")))
+	}
+	if starteds[1].Size != int64(len("content2")) {
+		t.Errorf("ItemStarted[1].Size = %d, want %d", starteds[1].Size, int64(len("content2")))
 	}
 }
 

@@ -56,7 +56,7 @@ func (q *MoveQueue) run(ctx context.Context, ch chan<- any) {
 	defer close(ch)
 
 	// Pre-walk sources to compute totals.
-	totalBytes, totalItems := q.preWalk()
+	totalBytes, totalItems, sizes := q.preWalk()
 	ch <- QueueTotals{TotalBytes: totalBytes, TotalItems: totalItems}
 
 	// Process items sequentially.
@@ -70,7 +70,7 @@ func (q *MoveQueue) run(ctx context.Context, ch chan<- any) {
 		default:
 		}
 
-		ch <- ItemStarted{Index: i, Source: item.Source, Dest: item.Dest}
+		ch <- ItemStarted{Index: i, Source: item.Source, Dest: item.Dest, Size: sizes[i]}
 
 		// Resolve cleaned absolute paths for the infinite-recursion guard.
 		srcAbs, err := filepath.Abs(filepath.Clean(item.Source))
@@ -158,29 +158,33 @@ func (q *MoveQueue) run(ctx context.Context, ch chan<- any) {
 
 // preWalk walks all source paths to compute total bytes and total items.
 // Non-existent sources are skipped in the byte count but still counted as items.
-func (q *MoveQueue) preWalk() (int64, int) {
+func (q *MoveQueue) preWalk() (int64, int, []int64) {
 	var totalBytes int64
 	totalItems := len(q.items)
+	sizes := make([]int64, totalItems)
 
-	for _, item := range q.items {
+	for i, item := range q.items {
 		info, err := os.Stat(item.Source)
 		if err != nil {
 			continue
 		}
 		if info.IsDir() {
+			var dirBytes int64
 			filepath.Walk(item.Source, func(path string, fi os.FileInfo, err error) error {
 				if err != nil {
 					return nil
 				}
 				if !fi.IsDir() {
-					totalBytes += fi.Size()
+					dirBytes += fi.Size()
 				}
 				return nil
 			})
+			sizes[i] = dirBytes
 		} else {
-			totalBytes += info.Size()
+			sizes[i] = info.Size()
 		}
+		totalBytes += sizes[i]
 	}
 
-	return totalBytes, totalItems
+	return totalBytes, totalItems, sizes
 }

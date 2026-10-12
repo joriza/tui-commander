@@ -65,7 +65,7 @@ func (a *App) buildUI() {
 
 	// Key bar at the bottom
 	a.keyBar = tview.NewTextView()
-	a.keyBar.SetText("Tab Panel  F5 Copy  Shift+F5 Dup  F6 Move  Shift+F6 Ren  F7 MkDir  F8 Del  F10 Quit")
+	a.keyBar.SetText("Tab Panel  F2 Reread  F5 Copy  Shift+F5 Dup  F6 Move  Shift+F6 Ren  F7 MkDir  F8 Del  F10 Quit")
 
 	// Two panels side by side
 	panelsFlex := tview.NewFlex().
@@ -252,6 +252,10 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 		a.setCursor(len(a.focusedPanel().Entries()) - 1)
 		return nil
 
+	case event.Key() == tcell.KeyF2:
+		a.rereadFocusedPanel()
+		return nil
+
 	case event.Key() == tcell.KeyF5 && event.Modifiers()&tcell.ModShift != 0:
 		a.duplicateDialog()
 		return nil
@@ -287,6 +291,15 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 // switchFocus toggles keyboard focus between the left and right panels.
 func (a *App) switchFocus() {
 	a.focusIndex = 1 - a.focusIndex
+	a.render()
+}
+
+// rereadFocusedPanel reloads the focused panel (TC standard F2).
+func (a *App) rereadFocusedPanel() {
+	panel := a.focusedPanel()
+	if err := panel.Load(panel.CurrentPath()); err != nil {
+		a.ShowErrorDialog("Error", fmt.Sprintf("Cannot reload panel: %v", err), nil)
+	}
 	a.render()
 }
 
@@ -364,7 +377,7 @@ func (a *App) mkdirDialog() {
 		SetLabel("Directory name: ").
 		SetFieldWidth(30)
 
-	a.ShowFormDialog("New directory", []tview.FormItem{input}, func(ok bool) {
+	a.ShowFormDialog("New directory", []tview.FormItem{input}, 0, func(ok bool) {
 		if !ok {
 			return
 		}
@@ -394,7 +407,7 @@ func (a *App) deleteDialog() {
 
 	a.ShowFormDialog("Delete", []tview.FormItem{
 		tview.NewTextView().SetText(fmt.Sprintf("Delete %s? (permanent)", name)),
-	}, func(ok bool) {
+	}, 2, func(ok bool) {
 		if !ok {
 			return
 		}
@@ -419,8 +432,8 @@ func (a *App) runDelete(panel *core.Panel, entry core.Entry) {
 	updateProgress, closeProgress := a.ShowProgressDialog(progressTitle)
 
 	runner.
-		OnProgress(func(done, total int, doneBytes, totalBytes int64) {
-			updateProgress(done, total, doneBytes, totalBytes)
+		OnProgress(func(currentName string, fileBytes, fileSize int64, done, total int, doneBytes, totalBytes int64, eta ProgressETA) {
+			updateProgress(currentName, fileBytes, fileSize, done, total, doneBytes, totalBytes, eta)
 		}).
 		OnDone(func(result OperationResult) {
 			a.activeCancel = nil
@@ -480,7 +493,7 @@ func (a *App) copyDialog() {
 		SetFieldWidth(50).
 		SetText(destPath)
 
-	a.ShowFormDialog("Copy", []tview.FormItem{input}, func(ok bool) {
+	a.ShowFormDialog("Copy", []tview.FormItem{input}, 0, func(ok bool) {
 		if !ok {
 			return
 		}
@@ -511,7 +524,7 @@ func (a *App) duplicateDialog() {
 		SetFieldWidth(50).
 		SetText(destPath)
 
-	a.ShowFormDialog("Duplicate", []tview.FormItem{input}, func(ok bool) {
+	a.ShowFormDialog("Duplicate", []tview.FormItem{input}, 0, func(ok bool) {
 		if !ok {
 			return
 		}
@@ -527,7 +540,7 @@ func (a *App) confirmOverwriteAndCopy(sourcePanel *core.Panel, entry core.Entry,
 	if _, err := os.Stat(dest); err == nil {
 		a.ShowFormDialog("Destination exists. Overwrite?", []tview.FormItem{
 			tview.NewTextView().SetText(fmt.Sprintf("Overwrite %s?", dest)),
-		}, func(ok bool) {
+		}, 2, func(ok bool) {
 			if !ok {
 				return
 			}
@@ -557,8 +570,8 @@ func (a *App) runCopy(sourcePanel *core.Panel, entry core.Entry, dest string, ov
 	updateProgress, closeProgress := a.ShowProgressDialog(progressTitle)
 
 	runner.
-		OnProgress(func(done, total int, doneBytes, totalBytes int64) {
-			updateProgress(done, total, doneBytes, totalBytes)
+		OnProgress(func(currentName string, fileBytes, fileSize int64, done, total int, doneBytes, totalBytes int64, eta ProgressETA) {
+			updateProgress(currentName, fileBytes, fileSize, done, total, doneBytes, totalBytes, eta)
 		}).
 		OnDone(func(result OperationResult) {
 			a.activeCancel = nil
@@ -601,7 +614,7 @@ func (a *App) moveRenameDialog() {
 		SetFieldWidth(50).
 		SetText(destPath)
 
-	a.ShowFormDialog("Move/Rename", []tview.FormItem{input}, func(ok bool) {
+	a.ShowFormDialog("Move/Rename", []tview.FormItem{input}, 0, func(ok bool) {
 		if !ok {
 			return
 		}
@@ -615,7 +628,7 @@ func (a *App) moveRenameDialog() {
 			if _, err := os.Stat(dest); err == nil {
 				a.ShowFormDialog("Destination exists. Overwrite?", []tview.FormItem{
 					tview.NewTextView().SetText(fmt.Sprintf("Overwrite %s?", dest)),
-				}, func(ok bool) {
+				}, 2, func(ok bool) {
 					if !ok {
 						return
 					}
@@ -646,7 +659,7 @@ func (a *App) renameDialog() {
 		SetFieldWidth(50).
 		SetText(destPath)
 
-	a.ShowFormDialog("Rename", []tview.FormItem{input}, func(ok bool) {
+	a.ShowFormDialog("Rename", []tview.FormItem{input}, 0, func(ok bool) {
 		if !ok {
 			return
 		}
@@ -680,8 +693,8 @@ func (a *App) runMoveOrRename(sourcePanel *core.Panel, entry core.Entry, dest st
 	updateProgress, closeProgress := a.ShowProgressDialog(progressTitle)
 
 	runner.
-		OnProgress(func(done, total int, doneBytes, totalBytes int64) {
-			updateProgress(done, total, doneBytes, totalBytes)
+		OnProgress(func(currentName string, fileBytes, fileSize int64, done, total int, doneBytes, totalBytes int64, eta ProgressETA) {
+			updateProgress(currentName, fileBytes, fileSize, done, total, doneBytes, totalBytes, eta)
 		}).
 		OnDone(func(result OperationResult) {
 			a.activeCancel = nil
