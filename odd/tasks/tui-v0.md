@@ -65,14 +65,26 @@ copy-and-run, portable from a USB stick.
 - [ ] T7: Incremental filter (Ctrl+Alt+letter, TC standard) + drive
 switching with Alt+F1/Alt+F2 (S6, S2); selection keys Insert,
 Space, +, -, * on main-row keys.
-- [ ] T6c (IN PROGRESS, UNCOMMITTED — worker stalled 30 min in bash,
-likely `go run .` headless; work IS on disk, build+tests pass, diff
-NOT yet reviewed): ItemStarted.Size in core; OperationRunner byte
-tracking; progress modal with two text bars (file% + total%) +
-ETA/speed after 2% (EMA, TC-style); ShowFormDialog extraRows (delete
-confirm +2); F2 = reread focused panel (TC standard per installed
-KEYBOARD.TXT); verify MoveQueue propagates QueueTotals. RESUME:
-review diff, complete missing scope, commit, user retest.
+- [x] T6c (commit `9099946`): ItemStarted.Size in core; OperationRunner
+      byte tracking; progress modal with two text bars (file% + total%) +
+      ETA/speed after 2% (EMA, TC-style); ShowFormDialog extraRows (delete
+      confirm +2); F2 = reread focused panel (TC standard per installed
+      KEYBOARD.TXT); MoveQueue QueueTotals propagation verified.
+- [x] T6d (commit `9980525`): progress dialog shows the CURRENT FILE NAME and
+      an incrementing FILE COUNT, including for directory-tree copies.
+      Root cause (confirmed empirically 2026-10-12): CopyQueue/MoveQueue are
+      item-granular — a directory is ONE queue item, so only the folder name
+      was ever reported and the count stuck at 0/1; also OperationRunner
+      double-counted totals (`total++` on every ItemStarted after QueueTotals
+      already set TotalItems → "1/2" for a one-item copy). Fix: core emits a
+      new `ItemFile` event per individual file (name + size) during tree
+      copies; `QueueTotals` gains `TotalFiles`; runner drives the count from
+      file-level events; UI keeps the simplified "current file name + N/M
+      files" display the user asked for (bytes/ETA bars deferred).
+      RDD review: preflight ran; candidate is high-risk and wide (35 files /
+      5137 lines from the un-advanced branch-point boundary). Consent could
+      NOT be presented — this runtime exposes no native `question` consent UI,
+      so the review start is blocked pending a compatible runtime.
 - [ ] T8: View/Edit + polish — F3 pager, F4 editor handoff, README final,
       optimized static build (`-ldflags="-s -w"`), smoke test on a real
       folder tree, portable-run checklist.
@@ -91,6 +103,7 @@ review diff, complete missing scope, commit, user retest.
 | T6a fix 2 | `c2add46` (branch `tui-v0`) | User-reported F8 hang: progress modal stuck while delete completed. Root cause: NESTED QueueUpdateDraw — runner marshals OnProgress onto the UI thread and updateProgress queued again (unbuffered updates channel self-deadlock). Fixed: updateProgress mutates directly (runner is the single marshalling point). Also: dialogs now have borders+titles; Esc never quits (F10 only) confirmed as policy. Diagnosed with headless simulation-screen harness + tracing (removed after). Lessons recorded in odd/lessons-for-sibling-app.md |
 | T6a fix 3 | `11c7cfa` (branch `tui-v0`) | User feedback: modals stretched full-screen height. wrapDialog takes explicit content height; error modal capped at 20 rows with scroll. Lesson C5 added to the sibling registry |
 | T6b | `ae22ba4` (branch `tui-v0`) | F5/Shift+F5/F6/Shift+F6 wired TC-style; byte progress via QueueTotals+ItemProgress; overwrite confirmation on copy AND cross-directory move (silent Overwrite:true caught in parent review — data-loss risk). Build, vet, 85 tests, linux build observed directly. Visual smoke: pending user test |
+| T6d | `9980525` (branch `tui-v0`) | Root cause confirmed empirically (dumped dir-copy event stream: one folder-level ItemStarted, items=1, no file names). RED observed by worker (undefined `ItemFile`/`TotalFiles` build failure) → GREEN: new tests `TestCopyQueue_DirEmitsItemFile` (3 files, per-file Source/Size, TotalFiles=3) and `TestMoveQueue_FallbackForwardsItemFile` (2 files forwarded). Parent re-verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green; reviewed copy.go/operations.go diff line-by-line. Visual smoke: pending user retest |
 
 ## Decisions log
 
