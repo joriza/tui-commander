@@ -106,6 +106,12 @@ Space, +, -, * on main-row keys.
   Shift+F5 duplicate in same dir; F8 and Delete both delete; Esc closes the
   topmost dialog and only quits from the main view (documented TUI
   adaptation); F10 quits (no menu bar in v0); Ctrl+Alt+letter quick search;
-  Alt+F1/Alt+F2 drive switch per panel. v1 candidates recorded: Shift+F2
-  compare directories, Ctrl+M multi-rename, Ctrl+D dir hotlist, folder
-  tabs (Ctrl+T/Ctrl+W), Space dir-size calculation, Enter executing files.
+   Alt+F1/Alt+F2 drive switch per panel. v1 candidates recorded: Shift+F2
+   compare directories, Ctrl+M multi-rename, Ctrl+D dir hotlist, folder
+   tabs (Ctrl+T/Ctrl+W), Space dir-size calculation, Enter executing files.
+ - 2026-10-12 (partial-test feedback, round 2): Ctrl+PgUp/Ctrl+PgDn scroll
+   the cursor by a page within the folder (user request); parent-dir keys
+   are Backspace only. Cursor bar: muted darkgreen (focused) computed from
+   the view's real inner width each frame — a fixed 100-col padding wrapped
+   lines and bled the background into extra rows (looked like everything
+   selected).
