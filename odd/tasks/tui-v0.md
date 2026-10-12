@@ -59,6 +59,8 @@ copy-and-run, portable from a USB stick.
       move-or-rename dialog, Shift+F6 rename in place, Shift+F5 duplicate,
       F7 mkdir, F8 and Delete delete, all with confirmation dialogs and
       progress view (S3–S5); Esc closes topmost dialog only.
+      Split for delivery: T6a = modal framework + F7 + F8/Delete + panel
+      rereads; T6b = F5/Shift+F5/F6/Shift+F6 + live progress + cancel.
 - [ ] T7: Incremental filter (Ctrl+Alt+letter, TC standard) + drive
 switching with Alt+F1/Alt+F2 (S6, S2); selection keys Insert,
 Space, +, -, * on main-row keys.
@@ -75,6 +77,7 @@ Space, +, -, * on main-row keys.
 | T3 | `99d3d9a` (branch `tui-v0`) | 40 tests green (`-count=1`), vet clean, `GOOS=linux` build+test-compile; race detector skipped — CGO unavailable on this machine (confirmed by parent). Caveat: worker sessions ended twice without final reports; RED observation was not independently captured; parent finished the last step inline (removed debug scratch tests, folded a clean pre-cancelled-context test into copy_test.go) and verified everything directly |
 | T4 | `babf371` (branch `tui-v0`) | RED observed (RemoveAll nil for nonexistent sources → Stat check added) → GREEN: 66 tests (`-count=1`), vet clean, `GOOS=linux` build+test compile; all observed directly by parent session |
 | T5 | `9a90bf1` (branch `tui-v0`) | Panel RED→GREEN per worker (RED tail not independently captured — worker report truncated, third occurrence); parent verified directly: 81 tests green (`-count=1`), vet clean, linux build+test compile, keyboard bindings reviewed line-by-line (Tab/Enter/Ctrl+PgUp/arrows/Home/End/F10/Esc). Visual smoke: pending user partial test |
+| T6a | `47ee481` (branch `tui-v0`) | SameDirectory RED→GREEN (4 tests); parent verified directly: 85 tests green (`-count=1`), vet clean, linux build+test compile; parent improved ItemError handling to keep per-file paths in error modal; UI visual smoke: pending user test of F7/F8 |
 
 ## Decisions log
 
