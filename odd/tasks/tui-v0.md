@@ -92,8 +92,13 @@ Space, +, -, * on main-row keys.
   in v0 by spec (S3) matching MC/TC default behavior; the queue consumes a
   `Copier` interface so bounded parallelism can be added in v1 without
   changing the queue contract. Copies preserve mtime (`os.Chtimes`).
-- 2026-10-12 (keyboard fidelity, user requirement): respect Total Commander
-  standard keyboard behavior as far as a terminal allows. v0 map: Tab focus;
+- 2026-10-12 (partial-test feedback): Backspace is the primary parent-dir
+  key (user request); Ctrl+PgUp also kept bound to parent (stock TC binds it
+  so — user may ask to remove it). Cursor row replaced with a full-width
+  solid color bar (black-on-green focused / black-on-grey unfocused) after
+   the user reported the reverse-video cue was too subtle.
+ - 2026-10-12 (keyboard fidelity, user requirement): respect Total Commander
+   standard keyboard behavior as far as a terminal allows. v0 map: Tab focus;
   Enter descend; Ctrl+PgUp parent; Insert select (cursor advances); Space
   select (dir sizes v1); +/-/* group select/deselect/invert on main-row keys
   (terminal adaptation — numpad codes unreliable); F3/F4/F5/F7/F8 per TC;
