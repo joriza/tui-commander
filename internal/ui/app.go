@@ -162,7 +162,8 @@ func (a *App) renderPanel(panel *core.Panel, view *tview.TextView, focused bool)
 		}
 		mtimeStr := e.ModTime.Format("2006-01-02 15:04")
 
-		line := fmt.Sprintf("%-30s  %10s  %s", e.Name, sizeStr, mtimeStr)
+		nameCol := nameColumnWidth(width)
+		line := fmt.Sprintf("%-*s  %8s  %s", nameCol, truncateMiddle(e.Name, nameCol), sizeStr, mtimeStr)
 		// The cursor bar must match the real row width: a fixed padding
 		// wider than the panel wraps lines and drags the background color
 		// into extra visual lines (looked like "everything selected").
@@ -196,6 +197,35 @@ func padOrTruncate(s string, width int) string {
 		return string(r[:max(width-1, 0)]) + "…"
 	}
 	return s + strings.Repeat(" ", width-len(r))
+}
+
+// nameColumnWidth returns the width reserved for an entry name inside a panel
+// with the given inner width. The name column fills the space left after the
+// fixed size and date columns, so it scales with the panel (and window) width.
+// A minimum keeps names readable in a narrow, unmaximized window.
+func nameColumnWidth(innerWidth int) int {
+	const reserved = 8 /* size */ + 2 /* gap */ + 16 /* date */ + 2 /* gap */
+	w := innerWidth - reserved
+	if w < 20 {
+		w = 20
+	}
+	return w
+}
+
+// truncateMiddle shortens s to at most w runes by inserting a single ellipsis
+// in the middle, so the beginning and the end (typically the extension) both
+// stay visible. Strings already within w are returned unchanged.
+func truncateMiddle(s string, w int) string {
+	r := []rune(s)
+	if len(r) <= w {
+		return s
+	}
+	if w <= 1 {
+		return "…"
+	}
+	left := (w - 1) / 2
+	right := w - 1 - left
+	return string(r[:left]) + "…" + string(r[len(r)-right:])
 }
 
 // formatSize returns a human-readable file size string.
@@ -492,6 +522,14 @@ func (a *App) driveDialog(panel *core.Panel) {
 	a.ShowListDialog("Drive", items, func(index int, _ string) {
 		if index < 0 || index >= len(volumes) {
 			return
+		}
+		// Choosing a drive makes that panel the active one (Total
+		// Commander behaviour): Alt+F1 targets the left panel, Alt+F2 the
+		// right one.
+		if panel == a.leftPanel {
+			a.focusIndex = 0
+		} else {
+			a.focusIndex = 1
 		}
 		if err := panel.Load(volumes[index].Path); err != nil {
 			a.ShowErrorDialog("Error", fmt.Sprintf("Cannot load drive: %v", err), nil)
