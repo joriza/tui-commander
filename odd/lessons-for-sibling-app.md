@@ -57,6 +57,13 @@ bug fix or behavior decision appends a row here in the same commit.**
   are reported as skipped.
 - Destination-inside-source guard (cleaned absolute paths) prevents
   infinite-recursion copies.
+- Progress granularity: the copy/move queue is item-granular — a directory is
+  ONE queue item, so only the folder name is ever reported. File-level UI
+  progress (current file name + a file count) requires the engine to emit an
+  explicit per-file event (here `ItemFile`), never inference from item events.
+- Derived counters need a single source of truth: never set a running total
+  from queue totals AND increment it again per started item — that double-count
+  showed "1/2" for a one-item copy.
 
 ## Process lessons (applies to any AI-assisted project)
 

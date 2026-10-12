@@ -727,6 +727,65 @@ func TestCopyQueue_ItemProgressIndex(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// TestCopyQueue_DirEmitsItemFile
+// ---------------------------------------------------------------------------
+
+// TestCopyQueue_DirEmitsItemFile verifies that copying a directory tree emits
+// one ItemFile event per individual file inside the tree (not just the folder),
+// so the UI can show the current file name and a file-level count.
+func TestCopyQueue_DirEmitsItemFile(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := t.TempDir()
+
+	realSrc := filepath.Join(srcDir, "srcfolder")
+	mkdirAll(t, filepath.Join(realSrc, "sub"))
+	// Sizes: a.txt=4 bytes, sub/b.txt=6 bytes, sub/c.txt=8 bytes.
+	a := writeFile(t, realSrc, "a.txt", []byte("aabb"), 0644)
+	b := writeFile(t, filepath.Join(realSrc, "sub"), "b.txt", []byte("bbbbbb"), 0644)
+	c := writeFile(t, filepath.Join(realSrc, "sub"), "c.txt", []byte("cccccccc"), 0644)
+
+	dstRoot := filepath.Join(dstDir, "dst")
+
+	q := NewCopyQueue([]CopyItem{{Source: realSrc, Dest: dstRoot}}, CopyOptions{})
+	ch := q.Run(context.Background())
+	events := collectEvents(t, ch)
+
+	totals, ok := firstEvent[QueueTotals](events)
+	if !ok {
+		t.Fatal("expected QueueTotals event")
+	}
+	if totals.TotalFiles != 3 {
+		t.Errorf("QueueTotals.TotalFiles = %d, want 3", totals.TotalFiles)
+	}
+
+	files := findEvent[ItemFile](events)
+	if len(files) != 3 {
+		t.Fatalf("expected 3 ItemFile events, got %d", len(files))
+	}
+
+	wantSizes := map[string]int64{a: 4, b: 6, c: 8}
+	seen := map[string]bool{}
+	for _, f := range files {
+		if f.Source == realSrc {
+			t.Errorf("ItemFile.Source = %q, want an individual file, not the directory", f.Source)
+			continue
+		}
+		want, ok := wantSizes[f.Source]
+		if !ok {
+			t.Errorf("unexpected ItemFile.Source = %q", f.Source)
+			continue
+		}
+		if f.Size != want {
+			t.Errorf("ItemFile.Source=%q Size = %d, want %d", f.Source, f.Size, want)
+		}
+		seen[f.Source] = true
+	}
+	if len(seen) != 3 {
+		t.Errorf("expected 3 distinct file sources, got %d", len(seen))
+	}
+}
+
 func TestCancelledBeforeStart(t *testing.T) {
 	srcDir := t.TempDir()
 	dstDir := t.TempDir()

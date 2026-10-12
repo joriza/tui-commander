@@ -21,15 +21,17 @@ type ProgressETA struct {
 // QueueUpdateDraw, and reports the final state. It is generic over the
 // event channel (<-chan any) and reusable by T6b (copy/move).
 type OperationRunner struct {
-	ctx             context.Context
-	cancel          context.CancelFunc
-	eventCh         <-chan any
-	onDone          func(result OperationResult)
-	progressCb      func(currentName string, fileBytes, fileSize int64, done, total int, doneBytes, totalBytes int64, eta ProgressETA)
-	totalBytes      int64
-	doneBytes       int64
-	currentName     string
-	currentFileSize int64
+	ctx              context.Context
+	cancel           context.CancelFunc
+	eventCh          <-chan any
+	onDone           func(result OperationResult)
+	progressCb       func(currentName string, fileBytes, fileSize int64, done, total int, doneBytes, totalBytes int64, eta ProgressETA)
+	totalBytes       int64
+	doneBytes        int64
+	filesTotal       int
+	filesDone        int
+	currentName      string
+	currentFileSize  int64
 	currentFileBytes int64
 	// EMA state for smoothed rate.
 	prevRate      float64
@@ -82,19 +84,20 @@ const alpha = 0.3
 
 func (r *OperationRunner) run(app *App) {
 	var result OperationResult
-	var total int
-	done := 0
 
 	for event := range r.eventCh {
 		switch e := event.(type) {
 		case core.QueueTotals:
 			r.totalBytes = e.TotalBytes
-			total = e.TotalItems
+			r.filesTotal = e.TotalFiles
 		case core.ItemStarted:
-			total++
 			r.currentName = e.Source
 			r.currentFileSize = e.Size
 			r.currentFileBytes = 0
+		case core.ItemFile:
+			r.filesDone++
+			r.currentName = e.Source
+			r.currentFileSize = e.Size
 		case core.ItemProgress:
 			r.doneBytes = e.BytesSoFar
 			r.currentFileBytes = e.BytesSoFar
@@ -114,17 +117,14 @@ func (r *OperationRunner) run(app *App) {
 			r.prevDoneBytes = e.BytesSoFar
 			r.prevTime = now
 		case core.ItemDone:
-			done++
 			r.currentFileBytes = r.currentFileSize
 		case core.ItemError:
 			// Keep the path in the message: bare causes are useless when
 			// several items fail.
 			result.Errors = append(result.Errors,
 				fmt.Errorf("%s: %w", e.Source, e.Cause))
-			done++
 		case core.ItemSkipped:
 			result.Cancelled = true
-			done++
 		case core.QueueDone:
 			if r.onDone != nil {
 				app.tviewApp.QueueUpdateDraw(func() {
@@ -137,7 +137,7 @@ func (r *OperationRunner) run(app *App) {
 		if r.progressCb != nil {
 			eta := r.computeETA()
 			app.tviewApp.QueueUpdateDraw(func() {
-				r.progressCb(r.currentName, r.currentFileBytes, r.currentFileSize, done, total, r.doneBytes, r.totalBytes, eta)
+				r.progressCb(r.currentName, r.currentFileBytes, r.currentFileSize, r.filesDone, r.filesTotal, r.doneBytes, r.totalBytes, eta)
 			})
 		}
 	}

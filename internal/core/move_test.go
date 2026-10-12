@@ -385,6 +385,47 @@ func TestMoveQueue_ItemStartedSizePopulated(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// TestMoveQueue_FallbackForwardsItemFile
+// ---------------------------------------------------------------------------
+
+// TestMoveQueue_FallbackForwardsItemFile verifies that the copy-then-delete
+// fallback forwards ItemFile events from the copy engine with the individual
+// file sources, so a directory move reports per-file progress.
+func TestMoveQueue_FallbackForwardsItemFile(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := t.TempDir()
+
+	srcSub := filepath.Join(srcDir, "src")
+	mkdirAll(t, filepath.Join(srcSub, "sub"))
+	writeFileMtime(t, srcSub, "a.txt", []byte("file a"), time.Now())
+	writeFileMtime(t, filepath.Join(srcSub, "sub"), "b.txt", []byte("file b"), time.Now())
+
+	dstRoot := filepath.Join(dstDir, "dst")
+
+	q := NewMoveQueue([]MoveItem{{Source: srcSub, Dest: dstRoot}}, MoveOptions{ForceFallback: true})
+	ch := q.Run(context.Background())
+	events := collectEvents(t, ch)
+
+	totals, ok := firstEvent[QueueTotals](events)
+	if !ok {
+		t.Fatal("expected QueueTotals event")
+	}
+	if totals.TotalFiles != 2 {
+		t.Errorf("QueueTotals.TotalFiles = %d, want 2", totals.TotalFiles)
+	}
+
+	files := findEvent[ItemFile](events)
+	if len(files) != 2 {
+		t.Fatalf("expected 2 ItemFile events, got %d", len(files))
+	}
+	for _, f := range files {
+		if f.Source == srcSub {
+			t.Errorf("ItemFile.Source = %q, want an individual file, not the directory", f.Source)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
 // TestMoveQueue_MoveDirectory
 // ---------------------------------------------------------------------------
 

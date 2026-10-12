@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/rivo/tview"
@@ -109,45 +110,23 @@ func (a *App) ShowProgressDialog(title string) (updateProgress func(currentName 
 
 	updateProgress = func(currentName string, fileBytes, fileSize int64, done, total int, doneBytes, totalBytes int64, eta ProgressETA) {
 		var sb strings.Builder
-		// Line 1: current file name (truncated).
+		// Line 1: current file name (basename, truncated to 30 chars).
 		name := currentName
-		if len(name) > 30 {
-			name = name[len(name)-30:]
+		if name == "" {
+			name = "(preparando...)"
+		} else if len(name) > 30 {
+			name = filepath.Base(name)
+			if len(name) > 30 {
+				name = "..." + name[len(name)-27:]
+			}
 		}
 		fmt.Fprintf(&sb, "%s\n", name)
 
-		// Line 2: file progress bar.
-		filePct := 0
-		var fileBar string
-		if fileSize > 0 {
-			filePct = int(float64(fileBytes) / float64(fileSize) * 100)
-			filled := int(float64(fileBytes) / float64(fileSize) * 20)
-			if filled > 20 {
-				filled = 20
-			}
-			fileBar = fmt.Sprintf("[black:darkgreen]%s[-] %d%%", progressBar(filled), filePct)
-		} else {
-			fileBar = fmt.Sprintf("%s indeterminate", progressBar(0))
+		// Line 2: file count + size.
+		if done > total {
+			done = total
 		}
-		fmt.Fprintf(&sb, "%s\n", fileBar)
-
-		// Line 3: total progress bar.
-		totalPct := 0
-		var totalBar string
-		if totalBytes > 0 {
-			totalPct = int(float64(doneBytes) / float64(totalBytes) * 100)
-			filled := int(float64(doneBytes) / float64(totalBytes) * 20)
-			if filled > 20 {
-				filled = 20
-			}
-			totalBar = fmt.Sprintf("[black:darkgreen]%s[-] %d%% (%d/%d)", progressBar(filled), totalPct, done, total)
-		} else {
-			totalBar = fmt.Sprintf("%s %d/%d", progressBar(0), done, total)
-		}
-		fmt.Fprintf(&sb, "%s\n", totalBar)
-
-		// Line 4: ETA + speed.
-		fmt.Fprintf(&sb, "ETA: %s  %s", eta.Remaining, formatETARate(eta.RateMBs))
+		fmt.Fprintf(&sb, "Archivos: %d/%d  (%s)", done, total, formatSize(fileSize))
 
 		textView.SetText(sb.String())
 	}
@@ -176,7 +155,7 @@ func formatETARate(rateMBs float64) string {
 	if rateMBs <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("%s/s", formatSize(int64(rateMBs * 1024 * 1024)))
+	return fmt.Sprintf("%s/s", formatSize(int64(rateMBs*1024*1024)))
 }
 
 // wrapDialog wraps a primitive in a centered container with a fixed width

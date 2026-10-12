@@ -60,6 +60,7 @@ type CopyOptions struct {
 type QueueTotals struct {
 	TotalBytes int64
 	TotalItems int
+	TotalFiles int
 }
 
 // ItemStarted is emitted when an item begins processing.
@@ -76,6 +77,15 @@ type ItemStarted struct {
 type ItemProgress struct {
 	Index      int
 	BytesSoFar int64
+}
+
+// ItemFile is emitted when an individual file begins copying. For directory
+// items, one ItemFile is emitted per file inside the tree, so the UI can show
+// the current file name and a file-level count.
+type ItemFile struct {
+	Index  int
+	Source string
+	Size   int64
 }
 
 // ItemDone is emitted when an item completes successfully.
@@ -149,8 +159,8 @@ func (q *CopyQueue) run(ctx context.Context, ch chan<- any) {
 	defer close(ch)
 
 	// Pre-walk sources to compute totals.
-	totalBytes, totalItems, sizes := q.preWalk()
-	ch <- QueueTotals{TotalBytes: totalBytes, TotalItems: totalItems}
+	totalBytes, totalItems, sizes, totalFiles := q.preWalk()
+	ch <- QueueTotals{TotalBytes: totalBytes, TotalItems: totalItems, TotalFiles: totalFiles}
 
 	// Process items sequentially.
 	var copiedBytes int64
@@ -188,10 +198,16 @@ func (q *CopyQueue) run(ctx context.Context, ch chan<- any) {
 
 		// Perform the copy.
 		itemStartBytes := copiedBytes
-		err = q.copyItem(ctx, item.Source, item.Dest, func(n int64) {
-			copiedBytes = itemStartBytes + n
-			ch <- ItemProgress{Index: i, BytesSoFar: copiedBytes}
-		})
+		rep := &copyReporter{
+			onFile: func(path string, size int64) {
+				ch <- ItemFile{Index: i, Source: path, Size: size}
+			},
+			onBytes: func(n int64) {
+				copiedBytes = itemStartBytes + n
+				ch <- ItemProgress{Index: i, BytesSoFar: copiedBytes}
+			},
+		}
+		err = q.copyItem(ctx, item.Source, item.Dest, rep)
 		if err != nil {
 			ch <- ItemError{Index: i, Source: item.Source, Dest: item.Dest, Cause: err}
 			continue
@@ -204,11 +220,14 @@ func (q *CopyQueue) run(ctx context.Context, ch chan<- any) {
 }
 
 // preWalk walks all source paths to compute total bytes and total items.
-// Non-existent sources are skipped in the byte count but still counted as items.
-func (q *CopyQueue) preWalk() (int64, int, []int64) {
+// It also counts individual files: a file source counts as 1, and every
+// non-directory entry inside a directory source counts as 1. Non-existent
+// sources are skipped in the byte count but still counted as items.
+func (q *CopyQueue) preWalk() (int64, int, []int64, int) {
 	var totalBytes int64
 	totalItems := len(q.items)
 	sizes := make([]int64, totalItems)
+	totalFiles := 0
 
 	for i, item := range q.items {
 		info, err := os.Stat(item.Source)
@@ -223,35 +242,45 @@ func (q *CopyQueue) preWalk() (int64, int, []int64) {
 				}
 				if !fi.IsDir() {
 					dirBytes += fi.Size()
+					totalFiles++
 				}
 				return nil
 			})
 			sizes[i] = dirBytes
 		} else {
 			sizes[i] = info.Size()
+			totalFiles++
 		}
 		totalBytes += sizes[i]
 	}
 
-	return totalBytes, totalItems, sizes
+	return totalBytes, totalItems, sizes, totalFiles
+}
+
+// copyReporter receives per-file and per-byte progress from the recursive
+// copy. onFile is called once per individual file before its bytes are
+// copied; onBytes receives cumulative bytes for the current item.
+type copyReporter struct {
+	onFile  func(path string, size int64)
+	onBytes func(n int64)
 }
 
 // copyItem copies a single item (file or directory) from src to dst.
-func (q *CopyQueue) copyItem(ctx context.Context, src, dst string, onProgress func(int64)) error {
+func (q *CopyQueue) copyItem(ctx context.Context, src, dst string, rep *copyReporter) error {
 	srcInfo, err := os.Stat(src)
 	if err != nil {
 		return err
 	}
 
 	if srcInfo.IsDir() {
-		return q.copyDir(ctx, src, dst, onProgress)
+		return q.copyDir(ctx, src, dst, rep)
 	}
-	return q.copyFile(ctx, src, dst, onProgress)
+	return q.copyFile(ctx, src, dst, rep)
 }
 
 // copyFile copies a single file using chunked buffered I/O.
 // Cancellation is checked between chunks. mtime and mode are preserved.
-func (q *CopyQueue) copyFile(ctx context.Context, src, dst string, onProgress func(int64)) error {
+func (q *CopyQueue) copyFile(ctx context.Context, src, dst string, rep *copyReporter) error {
 	// Check overwrite policy.
 	if _, err := os.Stat(dst); err == nil {
 		if !q.opts.Overwrite {
@@ -264,6 +293,13 @@ func (q *CopyQueue) copyFile(ctx context.Context, src, dst string, onProgress fu
 		return err
 	}
 	defer in.Close()
+
+	// Report the individual file before copying its bytes.
+	if rep.onFile != nil {
+		if info, err := in.Stat(); err == nil {
+			rep.onFile(src, info.Size())
+		}
+	}
 
 	// Ensure parent directory exists.
 	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
@@ -324,14 +360,18 @@ func (q *CopyQueue) copyFile(ctx context.Context, src, dst string, onProgress fu
 
 		// Throttled progress: emit when enough time or bytes have passed.
 		if shouldEmitProgress(written, lastEmitBytes, q.progressMinInterval(), q.progressMinBytes(), lastEmit) {
-			onProgress(written)
+			if rep.onBytes != nil {
+				rep.onBytes(written)
+			}
 			lastEmit = time.Now()
 			lastEmitBytes = written
 		}
 	}
 
 	// Final progress emission.
-	onProgress(written)
+	if rep.onBytes != nil {
+		rep.onBytes(written)
+	}
 
 	return nil
 }
@@ -350,7 +390,7 @@ func shouldEmitProgress(written, lastEmitBytes int64, minInterval time.Duration,
 
 // copyDir recursively copies a directory tree.
 // Directory mtime is preserved best-effort after all contents are copied.
-func (q *CopyQueue) copyDir(ctx context.Context, src, dst string, onProgress func(int64)) error {
+func (q *CopyQueue) copyDir(ctx context.Context, src, dst string, rep *copyReporter) error {
 	// Create destination directory.
 	if err := os.MkdirAll(dst, 0755); err != nil {
 		return err
@@ -381,11 +421,11 @@ func (q *CopyQueue) copyDir(ctx context.Context, src, dst string, onProgress fun
 		}
 
 		if entry.IsDir() {
-			if err := q.copyDir(ctx, srcPath, dstPath, onProgress); err != nil {
+			if err := q.copyDir(ctx, srcPath, dstPath, rep); err != nil {
 				return err
 			}
 		} else {
-			if err := q.copyFile(ctx, srcPath, dstPath, onProgress); err != nil {
+			if err := q.copyFile(ctx, srcPath, dstPath, rep); err != nil {
 				return err
 			}
 		}

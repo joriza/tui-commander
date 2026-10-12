@@ -56,8 +56,8 @@ func (q *MoveQueue) run(ctx context.Context, ch chan<- any) {
 	defer close(ch)
 
 	// Pre-walk sources to compute totals.
-	totalBytes, totalItems, sizes := q.preWalk()
-	ch <- QueueTotals{TotalBytes: totalBytes, TotalItems: totalItems}
+	totalBytes, totalItems, sizes, totalFiles := q.preWalk()
+	ch <- QueueTotals{TotalBytes: totalBytes, TotalItems: totalItems, TotalFiles: totalFiles}
 
 	// Process items sequentially.
 	var copiedBytes int64
@@ -133,6 +133,8 @@ func (q *MoveQueue) run(ctx context.Context, ch chan<- any) {
 			case ItemProgress:
 				copiedBytes = itemStartBytes + e.BytesSoFar
 				ch <- ItemProgress{Index: i, BytesSoFar: copiedBytes}
+			case ItemFile:
+				ch <- ItemFile{Index: i, Source: e.Source, Size: e.Size}
 			case ItemDone:
 				// copy succeeded; fall through to source removal.
 			case ItemError:
@@ -157,11 +159,14 @@ func (q *MoveQueue) run(ctx context.Context, ch chan<- any) {
 }
 
 // preWalk walks all source paths to compute total bytes and total items.
-// Non-existent sources are skipped in the byte count but still counted as items.
-func (q *MoveQueue) preWalk() (int64, int, []int64) {
+// It also counts individual files: a file source counts as 1, and every
+// non-directory entry inside a directory source counts as 1. Non-existent
+// sources are skipped in the byte count but still counted as items.
+func (q *MoveQueue) preWalk() (int64, int, []int64, int) {
 	var totalBytes int64
 	totalItems := len(q.items)
 	sizes := make([]int64, totalItems)
+	totalFiles := 0
 
 	for i, item := range q.items {
 		info, err := os.Stat(item.Source)
@@ -176,15 +181,17 @@ func (q *MoveQueue) preWalk() (int64, int, []int64) {
 				}
 				if !fi.IsDir() {
 					dirBytes += fi.Size()
+					totalFiles++
 				}
 				return nil
 			})
 			sizes[i] = dirBytes
 		} else {
 			sizes[i] = info.Size()
+			totalFiles++
 		}
 		totalBytes += sizes[i]
 	}
 
-	return totalBytes, totalItems, sizes
+	return totalBytes, totalItems, sizes, totalFiles
 }

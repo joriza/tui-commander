@@ -623,7 +623,7 @@ func (a *App) moveRenameDialog() {
 			filepath.Dir(filepath.Join(panel.CurrentPath(), entry.Name)),
 			filepath.Dir(dest))
 		// Cross-directory moves onto an existing destination must be
-			// confirmed; same-dir renames fail with an error instead.
+		// confirmed; same-dir renames fail with an error instead.
 		if !sameDir {
 			if _, err := os.Stat(dest); err == nil {
 				a.ShowFormDialog("Destination exists. Overwrite?", []tview.FormItem{
