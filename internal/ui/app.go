@@ -629,42 +629,52 @@ func (a *App) mkdirDialog() {
 	})
 }
 
-// deleteDialog shows a confirmation dialog for deleting the cursor entry
-// of the focused panel. On confirmation the deletion runs in a goroutine
-// with a progress modal; Esc cancels the operation.
+// deleteDialog shows a confirmation dialog for deleting the focused panel's
+// selection set (or the cursor entry when nothing is selected). A
+// multi-selection is confirmed by item count only. On confirmation the
+// deletion runs in a goroutine with a progress modal; Esc cancels it.
 func (a *App) deleteDialog() {
 	panel := a.focusedPanel()
-	entries := panel.Entries()
-	if len(entries) == 0 {
+	sources := a.selectedEntries(panel)
+	if len(sources) == 0 {
 		return
 	}
-	entry := entries[panel.Cursor()]
-	name := entry.Name
+
+	confirm := fmt.Sprintf("Delete %s? (permanent)", sources[0].Name)
+	if len(sources) > 1 {
+		confirm = fmt.Sprintf("Delete %d items? (permanent)", len(sources))
+	}
 
 	a.ShowFormDialog("Delete", []tview.FormItem{
-		tview.NewTextView().SetText(fmt.Sprintf("Delete %s? (permanent)", name)),
+		tview.NewTextView().SetText(confirm),
 	}, 2, func(ok bool) {
 		if !ok {
 			return
 		}
-		a.runDelete(panel, entry)
+		a.runDelete(panel, sources)
 	})
 }
 
-// runDelete executes a delete queue for the given entry, showing progress
+// runDelete executes a delete queue for the given entries, showing progress
 // and error modals as appropriate.
-func (a *App) runDelete(panel *core.Panel, entry core.Entry) {
+func (a *App) runDelete(panel *core.Panel, entries []core.Entry) {
+	if len(entries) == 0 {
+		return
+	}
 	path := panel.CurrentPath()
-	fullPath := filepath.Join(path, entry.Name)
+	items := make([]string, len(entries))
+	for i, e := range entries {
+		items[i] = filepath.Join(path, e.Name)
+	}
 
-	queue := core.NewDeleteQueue([]string{fullPath}, core.DeleteOptions{})
+	queue := core.NewDeleteQueue(items, core.DeleteOptions{})
 	ctx, cancel := context.WithCancel(context.Background())
 	a.activeCancel = cancel
 
 	eventCh := queue.Run(ctx)
 	runner := NewOperationRunner(eventCh)
 
-	progressTitle := "Deleting " + entry.Name
+	progressTitle := opLabel("Deleting", entries[0].Name, len(entries))
 	updateProgress, closeProgress := a.ShowProgressDialog(progressTitle)
 
 	runner.
@@ -695,7 +705,7 @@ func (a *App) runDelete(panel *core.Panel, entry core.Entry) {
 // selectedEntries returns the panel's explicitly selected entries. When
 // nothing is explicitly selected it falls back to the cursor entry, which
 // is how Total Commander treats "no selection" (operate on the cursor).
-// Feeding this set into copy/move/delete is deferred to a later unit.
+// Copy (F5), move (F6) and delete (F8/Delete) operate on this set.
 func (a *App) selectedEntries(panel *core.Panel) []core.Entry {
 	selected := panel.SelectedEntries()
 	if len(selected) > 0 {
@@ -773,19 +783,70 @@ func (a *App) otherPanel(panel *core.Panel) *core.Panel {
 	return a.leftPanel
 }
 
-// copyDialog shows a form dialog to copy the cursor entry of
-// the focused panel to a destination path. On OK it confirms
-// overwrite if the destination exists, then runs CopyQueue.
+// opLabel returns a progress-dialog title: "<verb> <name>" for a single
+// item, or "<verb> <n> items" for a multi-selection. Multi-selection titles
+// never list names, only the item count.
+func opLabel(verb, name string, n int) string {
+	if n > 1 {
+		return fmt.Sprintf("%s %d items", verb, n)
+	}
+	return fmt.Sprintf("%s %s", verb, name)
+}
+
+// targetPaths returns one destination per source. For a single source, dest
+// is the full target path (rename-on-copy); for many, dest is the target
+// directory and each source keeps its own name.
+func targetPaths(dest string, sources []core.Entry) []string {
+	paths := make([]string, len(sources))
+	if len(sources) == 1 {
+		paths[0] = dest
+		return paths
+	}
+	for i, e := range sources {
+		paths[i] = filepath.Join(dest, e.Name)
+	}
+	return paths
+}
+
+// overwritePrompt returns the overwrite-confirmation text: the destination
+// path for one item, or "Overwrite <n> items?" for many. Multi-selection
+// prompts never list names, only the item count.
+func overwritePrompt(dest string, n int) string {
+	if n > 1 {
+		return fmt.Sprintf("Overwrite %d items?", n)
+	}
+	return fmt.Sprintf("Overwrite %s?", dest)
+}
+
+// anyTargetExists reports whether at least one destination path for the
+// selection already exists on disk.
+func anyTargetExists(dest string, sources []core.Entry) bool {
+	for _, p := range targetPaths(dest, sources) {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// copyDialog shows a form dialog to copy the focused panel's selection set
+// (or the cursor entry when nothing is selected). For a single source the
+// destination pre-fills to the full target path (the user may rename while
+// copying); for a multi-selection it pre-fills to the other panel's
+// directory and each source keeps its name. On OK it confirms overwrite if
+// any destination exists, then runs CopyQueue.
 func (a *App) copyDialog() {
 	panel := a.focusedPanel()
-	entries := panel.Entries()
-	if len(entries) == 0 {
+	sources := a.selectedEntries(panel)
+	if len(sources) == 0 {
 		return
 	}
-	entry := entries[panel.Cursor()]
 
 	other := a.otherPanel(panel)
-	destPath := filepath.Join(other.CurrentPath(), entry.Name)
+	destPath := other.CurrentPath()
+	if len(sources) == 1 {
+		destPath = filepath.Join(other.CurrentPath(), sources[0].Name)
+	}
 
 	input := tview.NewInputField().
 		SetLabel("Destination: ").
@@ -797,7 +858,7 @@ func (a *App) copyDialog() {
 			return
 		}
 		dest := input.GetText()
-		a.confirmOverwriteAndCopy(panel, entry, dest)
+		a.confirmOverwriteAndCopy(panel, sources, dest)
 	})
 }
 
@@ -828,36 +889,45 @@ func (a *App) duplicateDialog() {
 			return
 		}
 		dest := input.GetText()
-		a.confirmOverwriteAndCopy(panel, entry, dest)
+		a.confirmOverwriteAndCopy(panel, []core.Entry{entry}, dest)
 	})
 }
 
-// confirmOverwriteAndCopy checks whether the destination exists
-// and, if so, asks for overwrite confirmation before running the
-// copy operation.
-func (a *App) confirmOverwriteAndCopy(sourcePanel *core.Panel, entry core.Entry, dest string) {
-	if _, err := os.Stat(dest); err == nil {
+// confirmOverwriteAndCopy checks whether any destination for the selection
+// already exists and, if so, asks for one count-aware overwrite confirmation
+// before running the copy operation.
+func (a *App) confirmOverwriteAndCopy(sourcePanel *core.Panel, sources []core.Entry, dest string) {
+	if anyTargetExists(dest, sources) {
 		a.ShowFormDialog("Destination exists. Overwrite?", []tview.FormItem{
-			tview.NewTextView().SetText(fmt.Sprintf("Overwrite %s?", dest)),
+			tview.NewTextView().SetText(overwritePrompt(dest, len(sources))),
 		}, 2, func(ok bool) {
 			if !ok {
 				return
 			}
-			a.runCopy(sourcePanel, entry, dest, true)
+			a.runCopy(sourcePanel, sources, dest, true)
 		})
 		return
 	}
-	a.runCopy(sourcePanel, entry, dest, false)
+	a.runCopy(sourcePanel, sources, dest, false)
 }
 
-// runCopy executes a copy queue for the given entry, showing
+// runCopy executes a copy queue for the given entries, showing
 // progress and error modals as appropriate.
-func (a *App) runCopy(sourcePanel *core.Panel, entry core.Entry, dest string, overwrite bool) {
-	sourcePath := filepath.Join(sourcePanel.CurrentPath(), entry.Name)
+func (a *App) runCopy(sourcePanel *core.Panel, sources []core.Entry, dest string, overwrite bool) {
+	if len(sources) == 0 {
+		return
+	}
+	sourcePath := sourcePanel.CurrentPath()
+	paths := targetPaths(dest, sources)
+	items := make([]core.CopyItem, len(sources))
+	for i, e := range sources {
+		items[i] = core.CopyItem{
+			Source: filepath.Join(sourcePath, e.Name),
+			Dest:   paths[i],
+		}
+	}
 
-	queue := core.NewCopyQueue([]core.CopyItem{
-		{Source: sourcePath, Dest: dest},
-	}, core.CopyOptions{Overwrite: overwrite})
+	queue := core.NewCopyQueue(items, core.CopyOptions{Overwrite: overwrite})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	a.activeCancel = cancel
@@ -865,7 +935,7 @@ func (a *App) runCopy(sourcePanel *core.Panel, entry core.Entry, dest string, ov
 	eventCh := queue.Run(ctx)
 	runner := NewOperationRunner(eventCh)
 
-	progressTitle := "Copying " + entry.Name
+	progressTitle := opLabel("Copying", sources[0].Name, len(sources))
 	updateProgress, closeProgress := a.ShowProgressDialog(progressTitle)
 
 	runner.
@@ -894,19 +964,23 @@ func (a *App) runCopy(sourcePanel *core.Panel, entry core.Entry, dest string, ov
 	runner.Run(a)
 }
 
-// moveRenameDialog shows a form dialog to move or rename the
-// cursor entry. The destination pre-fills to the other panel's
-// path. On OK it dispatches to MoveQueue or RenamePath.
+// moveRenameDialog shows a form dialog to move or rename the focused panel's
+// selection set (or the cursor entry when nothing is selected). For a single
+// source the destination pre-fills to the full target path (rename-on-move);
+// for a multi-selection it pre-fills to the other panel's directory and each
+// source keeps its name. On OK it dispatches to the rename or move path.
 func (a *App) moveRenameDialog() {
 	panel := a.focusedPanel()
-	entries := panel.Entries()
-	if len(entries) == 0 {
+	sources := a.selectedEntries(panel)
+	if len(sources) == 0 {
 		return
 	}
-	entry := entries[panel.Cursor()]
 
 	other := a.otherPanel(panel)
-	destPath := filepath.Join(other.CurrentPath(), entry.Name)
+	destPath := other.CurrentPath()
+	if len(sources) == 1 {
+		destPath = filepath.Join(other.CurrentPath(), sources[0].Name)
+	}
 
 	input := tview.NewInputField().
 		SetLabel("Destination: ").
@@ -918,26 +992,65 @@ func (a *App) moveRenameDialog() {
 			return
 		}
 		dest := input.GetText()
+		a.dispatchMove(panel, sources, dest)
+	})
+}
+
+// dispatchMove routes a move/rename request for the selection set. A single
+// source keeps the same-directory rename fast path and the cross-directory
+// overwrite confirmation. A multi-selection always moves every source into
+// the target directory; if the target directory is the source panel's own
+// directory the request is a no-op (reload and return) so items are never
+// moved onto themselves.
+func (a *App) dispatchMove(sourcePanel *core.Panel, sources []core.Entry, dest string) {
+	if len(sources) == 0 {
+		return
+	}
+
+	if len(sources) == 1 {
+		entry := sources[0]
 		sameDir := core.SameDirectory(
-			filepath.Dir(filepath.Join(panel.CurrentPath(), entry.Name)),
+			filepath.Dir(filepath.Join(sourcePanel.CurrentPath(), entry.Name)),
 			filepath.Dir(dest))
 		// Cross-directory moves onto an existing destination must be
 		// confirmed; same-dir renames fail with an error instead.
-		if !sameDir {
-			if _, err := os.Stat(dest); err == nil {
-				a.ShowFormDialog("Destination exists. Overwrite?", []tview.FormItem{
-					tview.NewTextView().SetText(fmt.Sprintf("Overwrite %s?", dest)),
-				}, 2, func(ok bool) {
-					if !ok {
-						return
-					}
-					a.runMoveOrRename(panel, entry, dest, true)
-				})
+		if !sameDir && anyTargetExists(dest, sources) {
+			a.ShowFormDialog("Destination exists. Overwrite?", []tview.FormItem{
+				tview.NewTextView().SetText(overwritePrompt(dest, 1)),
+			}, 2, func(ok bool) {
+				if !ok {
+					return
+				}
+				a.runMoveOrRename(sourcePanel, entry, dest, true)
+			})
+			return
+		}
+		a.runMoveOrRename(sourcePanel, entry, dest, false)
+		return
+	}
+
+	// Multi-selection: dest is the target directory. A move onto the source
+	// panel's own directory is a no-op.
+	if core.SameDirectory(sourcePanel.CurrentPath(), dest) {
+		if err := sourcePanel.Load(sourcePanel.CurrentPath()); err != nil {
+			a.ShowErrorDialog("Error", fmt.Sprintf("Cannot reload panel: %v", err), nil)
+		}
+		a.render()
+		return
+	}
+
+	if anyTargetExists(dest, sources) {
+		a.ShowFormDialog("Destination exists. Overwrite?", []tview.FormItem{
+			tview.NewTextView().SetText(overwritePrompt(dest, len(sources))),
+		}, 2, func(ok bool) {
+			if !ok {
 				return
 			}
-		}
-		a.runMoveOrRename(panel, entry, dest, false)
-	})
+			a.runMoveQueue(sourcePanel, sources, dest, true)
+		})
+		return
+	}
+	a.runMoveQueue(sourcePanel, sources, dest, false)
 }
 
 // renameDialog shows a form dialog to rename the cursor entry
@@ -967,8 +1080,8 @@ func (a *App) renameDialog() {
 	})
 }
 
-// runMoveOrRename dispatches to RenamePath for same-directory
-// moves or MoveQueue for cross-directory moves.
+// runMoveOrRename dispatches a single source to RenamePath for
+// same-directory moves or to the move queue for cross-directory moves.
 func (a *App) runMoveOrRename(sourcePanel *core.Panel, entry core.Entry, dest string, overwrite bool) {
 	sourcePath := filepath.Join(sourcePanel.CurrentPath(), entry.Name)
 
@@ -977,10 +1090,26 @@ func (a *App) runMoveOrRename(sourcePanel *core.Panel, entry core.Entry, dest st
 		return
 	}
 
-	// Cross-directory move via MoveQueue.
-	queue := core.NewMoveQueue([]core.MoveItem{
-		{Source: sourcePath, Dest: dest},
-	}, core.MoveOptions{Overwrite: overwrite})
+	a.runMoveQueue(sourcePanel, []core.Entry{entry}, dest, overwrite)
+}
+
+// runMoveQueue executes a MoveQueue for the whole selection set, showing
+// progress and error modals as appropriate, then rereads both panels.
+func (a *App) runMoveQueue(sourcePanel *core.Panel, sources []core.Entry, dest string, overwrite bool) {
+	if len(sources) == 0 {
+		return
+	}
+	sourcePath := sourcePanel.CurrentPath()
+	paths := targetPaths(dest, sources)
+	items := make([]core.MoveItem, len(sources))
+	for i, e := range sources {
+		items[i] = core.MoveItem{
+			Source: filepath.Join(sourcePath, e.Name),
+			Dest:   paths[i],
+		}
+	}
+
+	queue := core.NewMoveQueue(items, core.MoveOptions{Overwrite: overwrite})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	a.activeCancel = cancel
@@ -988,7 +1117,7 @@ func (a *App) runMoveOrRename(sourcePanel *core.Panel, entry core.Entry, dest st
 	eventCh := queue.Run(ctx)
 	runner := NewOperationRunner(eventCh)
 
-	progressTitle := "Moving " + entry.Name
+	progressTitle := opLabel("Moving", sources[0].Name, len(sources))
 	updateProgress, closeProgress := a.ShowProgressDialog(progressTitle)
 
 	runner.
