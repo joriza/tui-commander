@@ -65,6 +65,14 @@ copy-and-run, portable from a USB stick.
 - [ ] T7: Incremental filter (Ctrl+Alt+letter, TC standard) + drive
 switching with Alt+F1/Alt+F2 (S6, S2); selection keys Insert,
 Space, +, -, * on main-row keys.
+- [ ] T6c (IN PROGRESS, UNCOMMITTED — worker stalled 30 min in bash,
+likely `go run .` headless; work IS on disk, build+tests pass, diff
+NOT yet reviewed): ItemStarted.Size in core; OperationRunner byte
+tracking; progress modal with two text bars (file% + total%) +
+ETA/speed after 2% (EMA, TC-style); ShowFormDialog extraRows (delete
+confirm +2); F2 = reread focused panel (TC standard per installed
+KEYBOARD.TXT); verify MoveQueue propagates QueueTotals. RESUME:
+review diff, complete missing scope, commit, user retest.
 - [ ] T8: View/Edit + polish — F3 pager, F4 editor handoff, README final,
       optimized static build (`-ldflags="-s -w"`), smoke test on a real
       folder tree, portable-run checklist.
