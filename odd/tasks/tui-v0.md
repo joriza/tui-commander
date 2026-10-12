@@ -41,7 +41,7 @@ copy-and-run, portable from a USB stick.
 
 ## Tasks
 
-- [ ] T1: Scaffold — Go module `tui-commander`, main entry with tview
+- [x] T1: Scaffold — Go module `tui-commander`, main entry with tview
       dual-panel placeholder, `.gitignore`, README with build/run/portable
       notes; `go build`, `go vet`, `go test ./...` green.
 - [ ] T2: Core path platform adapter — Windows long-path handling, name
@@ -66,7 +66,7 @@ copy-and-run, portable from a USB stick.
 
 | Task | Commit | Checks observed |
 | --- | --- | --- |
-| T1 | _(pending)_ | _(pending)_ |
+| T1 | `f290617` (branch `tui-v0`) | `go build ./...`, `go vet ./...`, `go test ./...` all green; observed directly by parent session (build, vet, test rerun) |
 
 ## Decisions log
 
@@ -75,3 +75,6 @@ copy-and-run, portable from a USB stick.
   this spec; code is not shared.
 - 2026-10-12: Repository created outside the REA repository, per REA's
   repository guidelines.
+- 2026-10-12 (T1 review note): the global `q`/`Q` quit binding is temporary
+  scaffold convenience; it must be removed or scoped once the incremental
+  filter input exists (S6, T7), or typing "q" in the filter would quit.
