@@ -79,3 +79,9 @@ copy-and-run, portable from a USB stick.
 - 2026-10-12 (T1 review note): the global `q`/`Q` quit binding is temporary
   scaffold convenience; it must be removed or scoped once the incremental
   filter input exists (S6, T7), or typing "q" in the filter would quit.
+- 2026-10-12 (T3 design): copy is chunked buffered I/O (`io.CopyBuffer`,
+  1–4 MB configurable buffer, cancellation checked between chunks, throttled
+  progress callbacks) — never byte-by-byte. The file queue stays sequential
+  in v0 by spec (S3) matching MC/TC default behavior; the queue consumes a
+  `Copier` interface so bounded parallelism can be added in v1 without
+  changing the queue contract. Copies preserve mtime (`os.Chtimes`).
