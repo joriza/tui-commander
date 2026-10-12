@@ -103,6 +103,10 @@ copy-and-run, portable from a USB stick.
             `Entry.ModTime` only for non-directories (`if !de.IsDir()`), so
             directories keep the zero time. Fix: read `Info()` for directories
             too (Size stays 0 for dirs).
+      - [x] T7f (user smoke test 2026-10-12): Esc with a non-empty selection
+            clears the whole selection in the focused panel (Total Commander
+            behaviour); with no selection Esc stays a no-op so F10 remains the
+            only quit key.
 - [x] T6c (commit `9099946`): ItemStarted.Size in core; OperationRunner
       byte tracking; progress modal with two text bars (file% + total%) +
       ETA/speed after 2% (EMA, TC-style); ShowFormDialog extraRows (delete
@@ -154,6 +158,8 @@ copy-and-run, portable from a USB stick.
 
 | T7e | `45ed003` (branch `tui-v0`) | Folder date column showed the zero time. Root cause confirmed by a failing test: `core.Panel.Load` set `Entry.ModTime` only for non-directories (`if !de.IsDir()`). Fix reads `Info()` for both kinds (Size stays 0 for dirs). Test-first: `TestLoad_SetsDirectoryModTime` RED (`0001-01-01` vs the seeded mtime) → GREEN. Parent verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green; `gofmt -l internal/ui` empty. RDD clone-local OFF — ordinary checks only. Visual smoke: pending user test |
 | T7a2 | `a489e09` (branch `tui-v0`) | F5/F6/F8 operate on `selectedEntries` (selection-only when non-empty, cursor fallback; cursor never auto-included). Multi-selection dialogs and progress titles show the item COUNT, never names. Single source keeps the full-destination (rename-on-copy/move) flow; multi source treats the destination as a directory and joins each name; multi move into the source directory is a no-op. Pure helpers `opLabel`/`targetPaths`/`overwritePrompt`/`anyTargetExists` extracted, tested in `internal/ui/ops_test.go` (worker RED = build failure on undefined symbols → GREEN). Independent verifier (`gentle-ai-verify`, tier high/unassessable): no blocking findings, single-selection behaviour preserved, tests assert real behaviour. Parent restored the `(permanent)` delete warning the worker had dropped. Parent verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green; `gofmt -l internal/ui` empty; diff reviewed line-by-line. Visual smoke: pending user test |
+
+| T7f | `(this commit)` (branch `tui-v0`) | Esc on the main view now clears the focused panel's selection when one exists (TC behaviour); with no selection it is a no-op. Extracted render-free `clearSelectionIfAny(panel)` (unit-testable without a running tview app) with tests in `internal/ui/ops_test.go`; first attempt wired the clear+render into one `*App` method and RED-panicked on `(*tview.TextView).Clear(nil)` — proving `render()` is not headless-safe, so the helper was split to keep the pure part testable. Parent verified: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green; `gofmt -l internal/ui` empty. Visual smoke: pending user test |
 
 ## Decisions log
 

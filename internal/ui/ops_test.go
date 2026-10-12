@@ -223,3 +223,35 @@ func TestSelectedEntriesUsesSelectionExcludingCursor(t *testing.T) {
 		t.Fatalf("selectedEntries = %v, want exactly the selected entry b.txt (cursor a.txt excluded)", entryNames(got))
 	}
 }
+
+// --- clearSelectionIfAny ---------------------------------------------------
+
+func TestClearSelectionIfAny_WithSelection(t *testing.T) {
+	panel := newTestPanel(t, "a.txt", "b.txt")
+
+	panel.SetCursor(0)
+	if !panel.ToggleSelectAtCursor() {
+		t.Fatalf("test setup: selecting a.txt failed")
+	}
+	if panel.SelectionCount() != 1 {
+		t.Fatalf("test setup: SelectionCount = %d, want 1", panel.SelectionCount())
+	}
+
+	if !clearSelectionIfAny(panel) {
+		t.Fatal("clearSelectionIfAny with a selection = false, want true (key must be consumed)")
+	}
+	if panel.SelectionCount() != 0 {
+		t.Fatalf("after clearing, SelectionCount = %d, want 0", panel.SelectionCount())
+	}
+}
+
+func TestClearSelectionIfAny_NoSelection(t *testing.T) {
+	panel := newTestPanel(t, "a.txt")
+
+	if clearSelectionIfAny(panel) {
+		t.Fatal("clearSelectionIfAny with no selection = true, want false (key must fall through)")
+	}
+	if panel.SelectionCount() != 0 {
+		t.Fatalf("SelectionCount = %d, want 0", panel.SelectionCount())
+	}
+}

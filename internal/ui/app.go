@@ -360,6 +360,14 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 		a.deleteDialog()
 		return nil
 
+	case event.Key() == tcell.KeyEscape:
+		// Total Commander: Esc unselects everything when there is a
+		// selection; with none it does nothing (F10 quits).
+		if clearSelectionIfAny(a.focusedPanel()) {
+			a.render()
+			return nil
+		}
+
 	case event.Key() == tcell.KeyF10:
 		a.tviewApp.Stop()
 		return nil
@@ -731,6 +739,19 @@ func (a *App) toggleSelectAndAdvance() {
 func (a *App) toggleSelectCurrent() {
 	a.focusedPanel().ToggleSelectAtCursor()
 	a.render()
+}
+
+// clearSelectionIfAny clears the panel's selection when one exists and
+// reports whether it did. Total Commander unselects everything on Esc
+// (instead of acting on the cursor); with no selection Esc stays a no-op so
+// F10 remains the only quit key. Kept render-free so it is unit-testable
+// without a running tview application.
+func clearSelectionIfAny(panel *core.Panel) bool {
+	if panel.SelectionCount() == 0 {
+		return false
+	}
+	panel.ClearSelection()
+	return true
 }
 
 // selectMaskDialog prompts for a wildcard mask and applies it to the
