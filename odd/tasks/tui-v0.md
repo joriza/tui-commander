@@ -82,6 +82,17 @@ copy-and-run, portable from a USB stick.
       - [ ] T7a2 (deferred): wire copy/move/delete to operate on the selection
             set (S3). Today they act on the cursor entry only; `selectedEntries`
             in app.go is dead code.
+      - [x] T7d (T7 smoke-test polish, requested by user 2026-10-12):
+            - [x] T7d1: choosing a drive with Alt+F1/Alt+F2 makes that panel the
+                  ACTIVE panel (Total Commander behaviour); today focus stays
+                  where it was after the dialog closes.
+            - [x] T7d2: the name column fills the space left after the size and
+                  date columns (proportional to the panel inner width) instead of
+                  a fixed 30 chars; keeps a readable minimum so narrow
+                  (unmaximized) windows do not lose the name.
+            - [x] T7d3: very long names are truncated in the MIDDLE with an
+                  ellipsis, preserving the start and the extension (e.g.
+                  `very-long-fi….tar.gz`), instead of a plain end cut.
 - [x] T6c (commit `9099946`): ItemStarted.Size in core; OperationRunner
       byte tracking; progress modal with two text bars (file% + total%) +
       ETA/speed after 2% (EMA, TC-style); ShowFormDialog extraRows (delete
@@ -129,6 +140,7 @@ copy-and-run, portable from a USB stick.
 | T7b | `fe8f4c5` (branch `tui-v0`) | `core.Panel` gains `filter`/`visible` (visible = single source of truth for Entries/cursor/selection; never aliases `entries`), SetFilter/ClearFilter/Filter/FirstMatchIndex. UI: hidden bottom-pinned "Quick search" window; typing a printable letter (excluding space/+/-/*) opens it and narrows live; Backspace edits by rune; Esc cancels (filter cleared, cursor restored to search origin); Enter puts the cursor on the first match in the full listing and closes; any other key cancels and acts on the restored listing. Selection count is visible-scoped while filtering (hidden selections retained). Worker RED (undefined SetFilter) → GREEN: 10 new core tests. Parent re-verified directly: build, vet, tests, linux cross all green; reviewed diff line-by-line. Visual smoke: pending user test |
 | RDD T7 slice | abandoned `review-4a4ed81f7b510552` (2026-10-12, `operator_disposition`, actor `orchestrator`) | Review of the T7 slice (13 paths / 1867 lines vs boundary `e9f1c32`) started on user consent (granted via native `question`); the `review-reliability` lens capture failed a 7th time with `opencode_task_output_empty` (reviewer Task completes without producing a result — this runtime's reviewer transport returns nothing; identical failure across 7 lineages since T6d). Relaunched once after the fresh STATUS re-offered the same bound slot; failed identically. Per contract, no indefinite retries: user chose to abandon the lineage at minimal cost. Quarantine: `.git/gentle-ai/review-transactions/quarantine/review-4a4ed81f7b510552-4132857914`. Verification stands on ordinary evidence: worker test-first (RED→GREEN), parent line-by-line diff review, `go build ./...`, `go vet ./...`, `go test ./... -count=1` and linux cross-build/vet all green per task. RDD remains enabled; a later review would need a compatible runtime (Claude Code/Codex) or a working reviewer transport. |
 | T7b fix | `8258ac3` (branch `tui-v0`) | User smoke test (2026-10-12): the quick search filter works with plain letters, but the search window overlapped the bottom key bar. Fixed in `buildUI`: `searchWrap` gains a fixed 2-row bottom spacer so the window renders above the key bar (which occupies the last row of the main page). Parent re-verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green (no deterministic UI-layout test exists — structural check only). Manual retest: user |
+| T7d | `cba96bc` (branch `tui-v0`) | Worker (gentle-ai-worker) RED (undefined `nameColumnWidth`/`truncateMiddle`) → GREEN: new `internal/ui/render_test.go` (TestTruncateMiddle 4 subtests, TestTruncateMiddleLongASCII, TestTruncateMiddleMultiByteCountsRunes, TestNameColumnWidth 4 subtests, TestNameColumnWidthNonDecreasing all PASS). Changes: `renderPanel` name column now `nameColumnWidth(width)` (fills the space left after the fixed size 8 + date 16 + separators 4 = 28 columns, minimum 20) plus `truncateMiddle` (middle `…`, keeps the extension); `driveDialog` sets `focusIndex` so the chosen drive's panel becomes active. Parent re-verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green (`internal/ui` now has tests); reviewed app.go + render_test.go line-by-line. T7d1 (drive focus) has no deterministic test — interactive dialog callback; structural check only. Visual smoke: pending user test. RDD clone-local OFF (opencode reviewer transport broken) — ordinary checks only |
 
 ## Decisions log
 
@@ -191,3 +203,11 @@ copy-and-run, portable from a USB stick.
   letters, but the search window overlapped the bottom key bar. Fixed by
   adding a fixed 2-row bottom spacer to `searchWrap` in `buildUI`, so the
   window renders above the key bar instead of on top of it.
+- 2026-10-12 (T7d design, user): the panel name column is now proportional to
+  the panel inner width — it fills the space left after the fixed size (8) and
+  date (16) columns plus separators (4), with a 20-column minimum — replacing
+  the former fixed 30 chars, so unmaximized windows keep names readable. Long
+  names are truncated in the MIDDLE with `…` (U+2026), preserving the start and
+  the extension. Choosing a drive (Alt+F1/Alt+F2) makes that panel the active
+  panel (Total Commander behaviour). "Start maximized" was left out: it is an
+  OS/terminal-host concern, not the application's.
