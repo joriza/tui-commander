@@ -132,11 +132,14 @@ func (a *App) renderPanel(panel *core.Panel, view *tview.TextView, focused bool)
 
 		if i == cursor {
 			// Full-row bar: muted green on the focused panel, dim grey on
-			// the other (both cursors visible, TC style).
+			// the other (both cursors visible, TC style). Close with
+			// [-:-] (fg AND bg reset) — a bare [-] only resets the
+			// foreground, so the background would bleed into every row
+			// below the cursor.
 			if focused {
-				fmt.Fprintf(view, "[black:darkgreen]%s[-]\n", line)
+				fmt.Fprintf(view, "[black:darkgreen]%s[-:-]\n", line)
 			} else {
-				fmt.Fprintf(view, "[black:gray]%s[-]\n", line)
+				fmt.Fprintf(view, "[black:gray]%s[-:-]\n", line)
 			}
 		} else {
 			fmt.Fprintf(view, "%s\n", line)
