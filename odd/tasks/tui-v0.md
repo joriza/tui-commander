@@ -66,7 +66,7 @@ copy-and-run, portable from a USB stick.
 
 | Task | Commit | Checks observed |
 | --- | --- | --- |
-| T1 | `f290617` (branch `tui-v0`) | `go build ./...`, `go vet ./...`, `go test ./...` all green; observed directly by parent session (build, vet, test rerun) |
+| T1 | `f290617` (branch `tui-v0`) | `go build ./...`, `go vet ./...`, `go test ./...` all green; observed directly by parent session (build, vet, test rerun). Visual smoke confirmed by user: dual panels render with bottom key bar |
 
 ## Decisions log
 
