@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/rivo/tview"
 )
@@ -33,7 +34,7 @@ func (a *App) ShowFormDialog(title string, items []tview.FormItem, callback func
 		callback(false)
 	})
 
-	a.pages.AddPage(title, a.wrapDialog(form), true, true)
+	a.pages.AddPage(title, a.wrapDialog(form, len(items)+5), true, true)
 	a.dialogStack = append(a.dialogStack, title)
 }
 
@@ -55,7 +56,8 @@ func (a *App) ShowMessageDialog(title, message string, callback func()) {
 		SetTitle(fmt.Sprintf(" %s ", title)).
 		SetTitleAlign(tview.AlignCenter)
 
-	a.pages.AddPage(title, a.wrapDialog(form), true, true)
+	height := strings.Count(message, "\n") + 5
+	a.pages.AddPage(title, a.wrapDialog(form, height), true, true)
 	a.dialogStack = append(a.dialogStack, title)
 }
 
@@ -79,7 +81,11 @@ func (a *App) ShowErrorDialog(title, message string, callback func()) {
 		SetTitle(fmt.Sprintf(" %s ", title)).
 		SetTitleAlign(tview.AlignCenter)
 
-	a.pages.AddPage(title, a.wrapDialog(form), true, true)
+	height := strings.Count(message, "\n") + 5
+	if height > 20 {
+		height = 20 // scrollable TextView handles the overflow
+	}
+	a.pages.AddPage(title, a.wrapDialog(form, height), true, true)
 	a.dialogStack = append(a.dialogStack, title)
 }
 
@@ -96,7 +102,7 @@ func (a *App) ShowProgressDialog(title string) (updateProgress func(done, total 
 		SetTitle(fmt.Sprintf(" %s ", title))
 	textView.SetText("Processing...")
 
-	a.pages.AddPage(title, a.wrapDialog(textView), true, true)
+	a.pages.AddPage(title, a.wrapDialog(textView, 3), true, true)
 	a.dialogStack = append(a.dialogStack, title)
 
 	updateProgress = func(done, total int) {
@@ -111,8 +117,9 @@ func (a *App) ShowProgressDialog(title string) (updateProgress func(done, total 
 }
 
 // wrapDialog wraps a primitive in a centered container with a fixed width
-// of approximately 60 characters.
-func (a *App) wrapDialog(content tview.Primitive) tview.Primitive {
+// of approximately 60 characters and a content-sized height, so modals do
+// not stretch over the full screen.
+func (a *App) wrapDialog(content tview.Primitive, height int) tview.Primitive {
 	return tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(nil, 0, 1, false).
@@ -120,7 +127,7 @@ func (a *App) wrapDialog(content tview.Primitive) tview.Primitive {
 			AddItem(nil, 0, 1, false).
 			AddItem(content, 60, 1, true).
 			AddItem(nil, 0, 1, false),
-			0, 1, true).
+			height, 0, true).
 		AddItem(nil, 0, 1, false)
 }
 
