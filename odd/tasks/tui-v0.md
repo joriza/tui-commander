@@ -55,12 +55,13 @@ copy-and-run, portable from a USB stick.
       unit tests (test-first).
 - [x] T5: Dual panel UI — real listings, per-panel state, cursor, sorting,
       focus switching (S1, S2).
-- [ ] T6: F-key wiring — TC-standard bindings: F5 copy, F6 shared
+- [x] T6: F-key wiring — TC-standard bindings: F5 copy, F6 shared
       move-or-rename dialog, Shift+F6 rename in place, Shift+F5 duplicate,
       F7 mkdir, F8 and Delete delete, all with confirmation dialogs and
       progress view (S3–S5); Esc closes topmost dialog only.
-      Split for delivery: T6a = modal framework + F7 + F8/Delete + panel
-      rereads; T6b = F5/Shift+F5/F6/Shift+F6 + live progress + cancel.
+      Delivered as T6a (47ee481 + fixes 0123a9d/c2add46) and T6b (ae22ba4:
+      copy/duplicate/move/rename with byte progress and overwrite
+      confirmation; silent-overwrite move risk caught and fixed in review).
 - [ ] T7: Incremental filter (Ctrl+Alt+letter, TC standard) + drive
 switching with Alt+F1/Alt+F2 (S6, S2); selection keys Insert,
 Space, +, -, * on main-row keys.
@@ -80,6 +81,8 @@ Space, +, -, * on main-row keys.
 | T6a | `47ee481` (branch `tui-v0`) | SameDirectory RED→GREEN (4 tests); parent verified directly: 85 tests green (`-count=1`), vet clean, linux build+test compile; parent improved ItemError handling to keep per-file paths in error modal; UI visual smoke: pending user test of F7/F8 |
 | T6a fix | `0123a9d` (branch `tui-v0`) | User-reported deadlock: F7/F8 froze keyboard with no visible dialog, Esc unrecoverable. Root cause: QueueUpdateDraw called from UI-goroutine dialog paths (page adds, button callbacks, closeDialog). Fixed by making dialog helpers mutate pages directly; only updateProgress (operation goroutine) keeps QueueUpdateDraw. Verified: build, vet, 85 tests green; user retest pending |
 | T6a fix 2 | `c2add46` (branch `tui-v0`) | User-reported F8 hang: progress modal stuck while delete completed. Root cause: NESTED QueueUpdateDraw — runner marshals OnProgress onto the UI thread and updateProgress queued again (unbuffered updates channel self-deadlock). Fixed: updateProgress mutates directly (runner is the single marshalling point). Also: dialogs now have borders+titles; Esc never quits (F10 only) confirmed as policy. Diagnosed with headless simulation-screen harness + tracing (removed after). Lessons recorded in odd/lessons-for-sibling-app.md |
+| T6a fix 3 | `11c7cfa` (branch `tui-v0`) | User feedback: modals stretched full-screen height. wrapDialog takes explicit content height; error modal capped at 20 rows with scroll. Lesson C5 added to the sibling registry |
+| T6b | `ae22ba4` (branch `tui-v0`) | F5/Shift+F5/F6/Shift+F6 wired TC-style; byte progress via QueueTotals+ItemProgress; overwrite confirmation on copy AND cross-directory move (silent Overwrite:true caught in parent review — data-loss risk). Build, vet, 85 tests, linux build observed directly. Visual smoke: pending user test |
 
 ## Decisions log
 
