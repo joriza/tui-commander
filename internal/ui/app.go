@@ -65,7 +65,7 @@ func (a *App) buildUI() {
 
 	// Key bar at the bottom
 	a.keyBar = tview.NewTextView()
-	a.keyBar.SetText("Tab Panel  F2 Reread  F5 Copy  Shift+F5 Dup  F6 Move  Shift+F6 Ren  F7 MkDir  F8 Del  F10 Quit")
+	a.keyBar.SetText("Tab Panel  Ins/Space Sel  +/-/* Group  Alt+F1/F2 Drive  F2 Reread  F5 Copy  Shift+F5 Dup  F6 Move  Shift+F6 Ren  F7 MkDir  F8 Del  F10 Quit")
 
 	// Two panels side by side
 	panelsFlex := tview.NewFlex().
@@ -259,6 +259,14 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 		a.setCursor(len(a.focusedPanel().Entries()) - 1)
 		return nil
 
+	case event.Key() == tcell.KeyF1 && event.Modifiers()&tcell.ModAlt != 0:
+		a.driveDialog(a.leftPanel)
+		return nil
+
+	case event.Key() == tcell.KeyF2 && event.Modifiers()&tcell.ModAlt != 0:
+		a.driveDialog(a.rightPanel)
+		return nil
+
 	case event.Key() == tcell.KeyF2:
 		a.rereadFocusedPanel()
 		return nil
@@ -332,6 +340,31 @@ func (a *App) rereadFocusedPanel() {
 		a.ShowErrorDialog("Error", fmt.Sprintf("Cannot reload panel: %v", err), nil)
 	}
 	a.render()
+}
+
+// driveDialog shows a volume list and loads the chosen root into the given
+// panel (Total Commander Alt+F1 / Alt+F2).
+func (a *App) driveDialog(panel *core.Panel) {
+	volumes := core.Volumes()
+	if len(volumes) == 0 {
+		return
+	}
+
+	items := make([]string, len(volumes))
+	for i, v := range volumes {
+		items[i] = v.Name
+	}
+
+	a.ShowListDialog("Drive", items, func(index int, _ string) {
+		if index < 0 || index >= len(volumes) {
+			return
+		}
+		if err := panel.Load(volumes[index].Path); err != nil {
+			a.ShowErrorDialog("Error", fmt.Sprintf("Cannot load drive: %v", err), nil)
+			return
+		}
+		a.render()
+	})
 }
 
 // focusedPanel returns the panel that currently has keyboard focus.

@@ -92,6 +92,33 @@ func (a *App) ShowErrorDialog(title, message string, callback func()) {
 	a.dialogStack = append(a.dialogStack, title)
 }
 
+// ShowListDialog displays a modal list of items. Enter on an item invokes
+// onSelect with the item index and text, then closes the dialog; Esc closes
+// it without selecting. Titles must be unique among open dialogs (the pages
+// stack is keyed by title).
+func (a *App) ShowListDialog(title string, items []string, onSelect func(index int, text string)) {
+	list := tview.NewList().ShowSecondaryText(false)
+	for i, item := range items {
+		idx, text := i, item
+		list.AddItem(text, "", 0, func() {
+			a.closeTopDialog()
+			if onSelect != nil {
+				onSelect(idx, text)
+			}
+		})
+	}
+	list.SetBorder(true).
+		SetTitle(fmt.Sprintf(" %s ", title)).
+		SetTitleAlign(tview.AlignCenter)
+
+	height := len(items) + 2
+	if height > 18 {
+		height = 18
+	}
+	a.pages.AddPage(title, a.wrapDialog(list, height), true, true)
+	a.dialogStack = append(a.dialogStack, title)
+}
+
 // ShowProgressDialog displays a modal progress dialog with dual
 // progress bars, file/current-item name, ETA, and throughput.
 // It returns two functions: both must be called from the UI goroutine
