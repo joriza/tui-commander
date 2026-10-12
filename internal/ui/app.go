@@ -27,6 +27,11 @@ type App struct {
 	pages        *tview.Pages
 	dialogStack  []string
 	activeCancel context.CancelFunc
+
+	// Quick search window state (TC "letter with search window").
+	searchMode   bool
+	searchField  *tview.InputField
+	searchOrigin int
 }
 
 // NewApp creates a new dual-panel App with the given panels.
@@ -81,6 +86,22 @@ func (a *App) buildUI() {
 	// Pages as root; "main" page holds the existing layout.
 	a.pages = tview.NewPages()
 	a.pages.AddPage("main", rootFlex, true, true)
+
+	// Quick search window: a bottom-pinned input field shown while the
+	// user is typing a filter. Added hidden; it is never pushed onto
+	// dialogStack because it is not a modal dialog.
+	a.searchField = tview.NewInputField()
+	a.searchField.SetFieldWidth(45)
+	a.searchField.SetBorder(true)
+	a.searchField.SetTitle(" Quick search ")
+
+	searchWrap := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(nil, 0, 1, false).
+		AddItem(tview.NewFlex().
+			AddItem(nil, 0, 1, false).
+			AddItem(a.searchField, 45, 1, true).
+			AddItem(nil, 0, 1, false), 3, 0, true)
+	a.pages.AddPage("search", searchWrap, true, false)
 
 	a.tviewApp.SetRoot(a.pages, true)
 
@@ -213,6 +234,17 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 		return event
 	}
 
+	// Quick search window is open: route keys to the search handler. A key
+	// that cancels the search is processed normally below so it acts on the
+	// restored full listing.
+	if a.searchMode {
+		ev := a.handleSearchKey(event)
+		if ev == nil {
+			return nil
+		}
+		event = ev
+	}
+
 	// No dialog open: normal key handling.
 	switch {
 	case event.Key() == tcell.KeyTab:
@@ -322,9 +354,108 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 		event.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) == 0:
 		a.invertSelection()
 		return nil
+
+	case event.Key() == tcell.KeyRune &&
+		event.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) == 0 &&
+		isSearchRune(event.Rune()):
+		a.startSearch(string(event.Rune()))
+		return nil
 	}
 
 	return event
+}
+
+// isSearchRune reports whether a typed rune starts/extends the quick
+// search. Control characters and the bound selection keys (space, and the
+// +/-/* group keys) are excluded; everything else printable qualifies.
+func isSearchRune(r rune) bool {
+	if r < ' ' || r == 0x7f {
+		return false
+	}
+	switch r {
+	case ' ', '+', '-', '*':
+		return false
+	}
+	return true
+}
+
+// startSearch opens the quick search window seeded with the typed rune,
+// records the cursor position so Esc can restore it, and narrows the focused
+// panel's listing to matching entries.
+func (a *App) startSearch(r string) {
+	a.searchMode = true
+	a.searchOrigin = a.focusedPanel().Cursor()
+	a.searchField.SetText(r)
+	a.focusedPanel().SetFilter(r)
+	a.pages.ShowPage("search")
+	a.render()
+}
+
+// handleSearchKey processes a key while the quick search window is open.
+// It returns nil when the key was consumed, or the original event when the
+// search was cancelled by that key so the caller can process it normally.
+func (a *App) handleSearchKey(event *tcell.EventKey) *tcell.EventKey {
+	switch {
+	case event.Key() == tcell.KeyEscape:
+		a.cancelSearch()
+		return nil
+
+	case event.Key() == tcell.KeyEnter:
+		a.commitSearch()
+		return nil
+
+	case event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2:
+		runes := []rune(a.searchField.GetText())
+		if len(runes) > 0 {
+			runes = runes[:len(runes)-1]
+		}
+		a.setSearchText(string(runes))
+		return nil
+
+	case event.Key() == tcell.KeyRune &&
+		event.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) == 0 &&
+		isSearchRune(event.Rune()):
+		a.setSearchText(a.searchField.GetText() + string(event.Rune()))
+		return nil
+	}
+
+	// Any other key cancels the search, then acts normally on the
+	// restored listing.
+	a.cancelSearch()
+	return event
+}
+
+// setSearchText updates the search field text and the focused panel's
+// filter, then re-renders.
+func (a *App) setSearchText(text string) {
+	a.searchField.SetText(text)
+	a.focusedPanel().SetFilter(text)
+	a.render()
+}
+
+// cancelSearch clears the filter, restores the cursor to where it was when
+// the search started, and hides the search window.
+func (a *App) cancelSearch() {
+	panel := a.focusedPanel()
+	panel.ClearFilter()
+	panel.SetCursor(a.searchOrigin)
+	a.searchMode = false
+	a.pages.HidePage("search")
+	a.render()
+}
+
+// commitSearch puts the cursor on the first match in the full listing and
+// hides the search window.
+func (a *App) commitSearch() {
+	panel := a.focusedPanel()
+	idx := panel.FirstMatchIndex()
+	panel.ClearFilter()
+	if idx >= 0 {
+		panel.SetCursor(idx)
+	}
+	a.searchMode = false
+	a.pages.HidePage("search")
+	a.render()
 }
 
 // switchFocus toggles keyboard focus between the left and right panels.

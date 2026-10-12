@@ -35,11 +35,25 @@ type Panel struct {
 	cursor      int
 	// selected tracks explicitly selected entries keyed by entry Name.
 	selected map[string]bool
+
+	// filter holds the active quick search string. When empty, visible
+	// contains all entries. When non-empty, visible contains entries whose
+	// name contains the filter (case-insensitively).
+	filter string
+	// visible is the list Entries()/cursor/selection operate on. When
+	// filter is empty, visible is a copy of entries; otherwise it holds
+	// matching entries in the same order. visible must never alias the
+	// entries backing array.
+	visible []Entry
 }
 
 // NewPanel creates a Panel with zero state (no path loaded).
 func NewPanel() *Panel {
-	return &Panel{selected: make(map[string]bool)}
+	return &Panel{
+		selected: make(map[string]bool),
+		visible:  nil,
+		filter:   "",
+	}
 }
 
 // Load populates the panel's entries from the filesystem at path using
@@ -77,6 +91,10 @@ func (p *Panel) Load(path string) error {
 	}
 
 	p.sortEntries()
+
+	// Clear any active filter (changing directory or rereading clears it).
+	p.filter = ""
+	p.applyFilter()
 	p.clampCursor()
 
 	return nil
@@ -123,22 +141,25 @@ func lessIgnoreCase(a, b string) bool {
 
 // clampCursor ensures the cursor stays within valid bounds.
 func (p *Panel) clampCursor() {
-	if len(p.entries) == 0 {
+	if len(p.visible) == 0 {
 		p.cursor = 0
 		return
 	}
 	if p.cursor < 0 {
 		p.cursor = 0
 	}
-	if p.cursor >= len(p.entries) {
-		p.cursor = len(p.entries) - 1
+	if p.cursor >= len(p.visible) {
+		p.cursor = len(p.visible) - 1
 	}
 }
 
-// Entries returns a copy of the current panel entries.
+// Entries returns a copy of the current panel entries (visible entries).
 func (p *Panel) Entries() []Entry {
-	result := make([]Entry, len(p.entries))
-	copy(result, p.entries)
+	if len(p.visible) == 0 {
+		return []Entry{}
+	}
+	result := make([]Entry, len(p.visible))
+	copy(result, p.visible)
 	return result
 }
 
@@ -201,10 +222,10 @@ func (p *Panel) CurrentPath() string {
 // cursor and returns the resulting state (true when the entry is now
 // selected). It returns false when the panel has no entries.
 func (p *Panel) ToggleSelectAtCursor() bool {
-	if len(p.entries) == 0 {
+	if len(p.visible) == 0 {
 		return false
 	}
-	name := p.entries[p.cursor].Name
+	name := p.visible[p.cursor].Name
 	if p.selected[name] {
 		delete(p.selected, name)
 		return false
@@ -222,7 +243,7 @@ func (p *Panel) IsSelected(name string) bool {
 // current visible entry order.
 func (p *Panel) SelectedNames() []string {
 	names := make([]string, 0, len(p.selected))
-	for _, e := range p.entries {
+	for _, e := range p.visible {
 		if p.selected[e.Name] {
 			names = append(names, e.Name)
 		}
@@ -234,7 +255,7 @@ func (p *Panel) SelectedNames() []string {
 // current visible entry order (same copy semantics as Entries).
 func (p *Panel) SelectedEntries() []Entry {
 	result := make([]Entry, 0, len(p.selected))
-	for _, e := range p.entries {
+	for _, e := range p.visible {
 		if p.selected[e.Name] {
 			result = append(result, e)
 		}
@@ -242,9 +263,18 @@ func (p *Panel) SelectedEntries() []Entry {
 	return result
 }
 
-// SelectionCount returns the number of currently selected entries.
+// SelectionCount returns the number of selected entries that are currently
+// visible. While a filter is active only visible selections are counted;
+// hidden selections are retained internally and reappear when the filter is
+// cleared.
 func (p *Panel) SelectionCount() int {
-	return len(p.selected)
+	count := 0
+	for _, e := range p.visible {
+		if p.selected[e.Name] {
+			count++
+		}
+	}
+	return count
 }
 
 // ClearSelection removes every selected entry.
@@ -295,8 +325,8 @@ func (p *Panel) DeselectMask(mask string) (int, error) {
 // InvertSelection inverts the selection across all visible entries and
 // returns the resulting selection count.
 func (p *Panel) InvertSelection() int {
-	next := make(map[string]bool, len(p.entries))
-	for _, e := range p.entries {
+	next := make(map[string]bool, len(p.visible))
+	for _, e := range p.visible {
 		if !p.selected[e.Name] {
 			next[e.Name] = true
 		}
@@ -315,7 +345,7 @@ func (p *Panel) matchMask(mask string) ([]string, error) {
 		return nil, err
 	}
 	var names []string
-	for _, e := range p.entries {
+	for _, e := range p.visible {
 		ok, err := filepath.Match(lowerMask, strings.ToLower(e.Name))
 		if err != nil {
 			return nil, err
@@ -326,3 +356,66 @@ func (p *Panel) matchMask(mask string) ([]string, error) {
 	}
 	return names, nil
 }
+
+// applyFilter rebuilds the visible slice from entries according to filter.
+// When filter is empty, visible is a copy of entries. When non-empty,
+// visible holds matching entries in the same order. visible must never alias
+// entries' backing array.
+func (p *Panel) applyFilter() {
+	if p.filter == "" {
+		if p.visible == nil {
+			p.visible = make([]Entry, len(p.entries))
+			copy(p.visible, p.entries)
+			return
+		}
+		p.visible = append(p.visible[:0], p.entries...)
+		return
+	}
+	filterLower := strings.ToLower(p.filter)
+	if p.visible == nil {
+		p.visible = make([]Entry, 0, len(p.entries))
+	} else {
+		p.visible = p.visible[:0]
+	}
+	for _, e := range p.entries {
+		if strings.Contains(strings.ToLower(e.Name), filterLower) {
+			p.visible = append(p.visible, e)
+		}
+	}
+}
+
+// SetFilter stores the filter, rebuilds visible (case-insensitive substring
+// match), and clamps the cursor to valid bounds.
+func (p *Panel) SetFilter(filter string) {
+	p.filter = filter
+	p.applyFilter()
+	p.clampCursor()
+}
+
+// Filter returns the active filter string.
+func (p *Panel) Filter() string {
+	return p.filter
+}
+
+// ClearFilter clears the filter (equivalent to SetFilter("")).
+func (p *Panel) ClearFilter() {
+	p.SetFilter("")
+}
+
+// FirstMatchIndex returns the full-listing index of the first visible entry.
+// It returns -1 when the filter is empty or there are no visible entries.
+func (p *Panel) FirstMatchIndex() int {
+	if p.filter == "" || len(p.visible) == 0 {
+		return -1
+	}
+	// visible preserves entries' order, so the first visible entry is the
+	// first entry in entries that matches the filter.
+	filterLower := strings.ToLower(p.filter)
+	for i, e := range p.entries {
+		if strings.Contains(strings.ToLower(e.Name), filterLower) {
+			return i
+		}
+	}
+	return -1
+}
+

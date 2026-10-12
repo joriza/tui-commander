@@ -730,3 +730,287 @@ func TestLoad_ClearsSelection(t *testing.T) {
 		t.Errorf("SelectedEntries expected empty after Load, got %d", len(p.SelectedEntries()))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Incremental filter (quick search)
+// ---------------------------------------------------------------------------
+
+// namesOf returns the entry names in order, for compact assertions.
+func namesOf(entries []Entry) []string {
+	names := make([]string, len(entries))
+	for i, e := range entries {
+		names[i] = e.Name
+	}
+	return names
+}
+
+// equalStrings reports whether two string slices are equal in order.
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestSetFilter_NarrowsEntries(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	all := len(p.Entries())
+	if all != 6 {
+		t.Fatalf("precondition: expected 6 entries, got %d", all)
+	}
+
+	p.SetFilter("a-file")
+	got := p.Entries()
+	if len(got) != 1 || got[0].Name != "a-file.txt" {
+		t.Fatalf("SetFilter(%q) expected [a-file.txt], got %v", "a-file", namesOf(got))
+	}
+
+	// The full entry set is preserved internally: clearing restores it.
+	p.ClearFilter()
+	if got := len(p.Entries()); got != all {
+		t.Errorf("after ClearFilter expected %d entries, got %d", all, got)
+	}
+}
+
+func TestSetFilter_CaseInsensitive(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	cases := []struct {
+		name   string
+		filter string
+		want   []string
+	}{
+		{"uppercase matches lowercase", "ALPHA", []string{"alpha"}},
+		{"lowercase matches mixed case", "beta", []string{"Beta"}},
+		{"mixed case matches lowercase", "GaMmA", []string{"gamma"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p.SetFilter(tc.filter)
+			if got := namesOf(p.Entries()); !equalStrings(got, tc.want) {
+				t.Errorf("SetFilter(%q) = %v, want %v", tc.filter, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestSetFilter_SubstringMatch(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// "file" appears inside all three file names but no directory name.
+	p.SetFilter("file")
+	want := []string{"a-file.txt", "b-file.txt", "c-file.log"}
+	if got := namesOf(p.Entries()); !equalStrings(got, want) {
+		t.Errorf("SetFilter(%q) = %v, want %v", "file", got, want)
+	}
+}
+
+func TestClearFilter_RestoresFullListing(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	all := len(p.Entries())
+
+	p.SetFilter("a-file")
+	if p.Filter() != "a-file" {
+		t.Fatalf("Filter() expected %q, got %q", "a-file", p.Filter())
+	}
+
+	p.ClearFilter()
+	if p.Filter() != "" {
+		t.Errorf("Filter() expected empty after ClearFilter, got %q", p.Filter())
+	}
+	if got := len(p.Entries()); got != all {
+		t.Errorf("after ClearFilter expected %d entries, got %d", all, got)
+	}
+}
+
+func TestFilter_DoesNotTruncateFullListing(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	all := len(p.Entries())
+
+	// A filter that matches nothing must not corrupt the full listing, and
+	// repeated filter changes must always rebuild from the full entry set.
+	for _, f := range []string{"a", "file", "no-such-entry-zzz", ""} {
+		p.SetFilter(f)
+	}
+	if got := len(p.Entries()); got != all {
+		t.Errorf("after filter cycle expected %d entries, got %d", all, got)
+	}
+}
+
+func TestSetFilter_CursorClampedToVisible(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Move the cursor to the last full-listing entry, then narrow to a
+	// single-match filter: the cursor must clamp into the filtered listing.
+	p.SetCursor(len(p.Entries()) - 1)
+	p.SetFilter("gamma")
+	if p.Cursor() != 0 {
+		t.Errorf("cursor expected 0 after narrowing filter, got %d", p.Cursor())
+	}
+
+	// SetCursor bounds now use the visible length.
+	p.SetCursor(100)
+	if p.Cursor() != 0 {
+		t.Errorf("cursor expected 0 after SetCursor beyond visible bounds, got %d", p.Cursor())
+	}
+}
+
+func TestSetFilter_SelectionVisibleScoped(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	n, err := p.SelectMask("*.txt")
+	if err != nil {
+		t.Fatalf("SelectMask(*.txt): %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("precondition: expected 2 selected, got %d", n)
+	}
+
+	// Hide b-file.txt by filtering to a-file.txt only.
+	p.SetFilter("a-file")
+	if got := p.SelectionCount(); got != 1 {
+		t.Errorf("SelectionCount expected 1 (visible only), got %d", got)
+	}
+	if got := p.SelectedNames(); !equalStrings(got, []string{"a-file.txt"}) {
+		t.Errorf("SelectedNames expected [a-file.txt], got %v", got)
+	}
+
+	// The hidden selection is retained: clearing the filter brings it back.
+	p.ClearFilter()
+	if got := p.SelectionCount(); got != 2 {
+		t.Errorf("SelectionCount expected 2 after ClearFilter, got %d", got)
+	}
+}
+
+func TestSelectMask_OnlyAffectsVisible(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	p.SetFilter("a-file")
+	n, err := p.SelectMask("*.txt")
+	if err != nil {
+		t.Fatalf("SelectMask(*.txt): %v", err)
+	}
+	if n != 1 {
+		t.Errorf("SelectMask on filtered listing expected 1, got %d", n)
+	}
+	if !p.IsSelected("a-file.txt") {
+		t.Error("expected a-file.txt selected")
+	}
+	if p.IsSelected("b-file.txt") {
+		t.Error("b-file.txt is hidden and must not be selected")
+	}
+}
+
+func TestFirstMatchIndex(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Full-listing index of "gamma" (dirs sort first: alpha, Beta, gamma).
+	full := p.Entries()
+	wantIdx := -1
+	for i, e := range full {
+		if e.Name == "gamma" {
+			wantIdx = i
+		}
+	}
+	if wantIdx != 2 {
+		t.Fatalf("precondition: expected gamma at full index 2, got %d", wantIdx)
+	}
+
+	if got := p.FirstMatchIndex(); got != -1 {
+		t.Errorf("FirstMatchIndex with no filter expected -1, got %d", got)
+	}
+
+	p.SetFilter("gamma")
+	if got := p.FirstMatchIndex(); got != wantIdx {
+		t.Errorf("FirstMatchIndex(%q) expected %d, got %d", "gamma", wantIdx, got)
+	}
+
+	p.SetFilter("no-such-entry-zzz")
+	if got := p.FirstMatchIndex(); got != -1 {
+		t.Errorf("FirstMatchIndex with no matches expected -1, got %d", got)
+	}
+}
+
+func TestLoad_ClearsFilter(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	p.SetFilter("a-file")
+	if got := len(p.Entries()); got != 1 {
+		t.Fatalf("precondition: expected 1 filtered entry, got %d", got)
+	}
+
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	if p.Filter() != "" {
+		t.Errorf("expected filter cleared after Load, got %q", p.Filter())
+	}
+	if got := len(p.Entries()); got != 6 {
+		t.Errorf("expected 6 entries after Load (filter cleared), got %d", got)
+	}
+}
