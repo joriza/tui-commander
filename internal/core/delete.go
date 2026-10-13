@@ -9,13 +9,51 @@ import (
 // DeleteQueue
 // ---------------------------------------------------------------------------
 
-// DeleteOptions carries per-queue configuration for DeleteQueue.
-type DeleteOptions struct{}
+// DeleteMode selects how a path is removed.
+type DeleteMode int
 
-// DeleteQueue permanently deletes files and recursive directory trees.
-// Per-item errors never abort the queue. Events: ItemStarted, ItemDone,
-// ItemError, QueueDone. No confirmation logic lives in core (UI owns
-// confirmation).
+const (
+	DeletePermanent DeleteMode = iota
+	DeleteToTrash
+)
+
+// VolumeKind classifies the volume holding a path.
+type VolumeKind int
+
+const (
+	VolumeUnknown VolumeKind = iota
+	VolumeFixed
+	VolumeRemovable
+)
+
+// VolumeProber reports the kind of the volume holding a path.
+type VolumeProber func(path string) VolumeKind
+
+// ModeForVolume maps a volume kind to a delete mode: fixed volumes go to the
+// recycle bin; removable, remote and unknown volumes are deleted permanently.
+func ModeForVolume(k VolumeKind) DeleteMode {
+	if k == VolumeFixed {
+		return DeleteToTrash
+	}
+	return DeletePermanent
+}
+
+// DeleteOptions carries per-queue configuration for DeleteQueue.
+type DeleteOptions struct {
+	// ModeFor decides per path between trashing and permanent deletion.
+	// Nil means permanent (current behaviour).
+	ModeFor func(path string) DeleteMode
+	// Trash moves a path to the platform recycle bin. Used only when ModeFor
+	// reports DeleteToTrash; when nil, such a path falls back to permanent
+	// deletion (never an error).
+	Trash func(path string) error
+}
+
+// DeleteQueue removes files and recursive directory trees. By default it
+// deletes permanently; when DeleteOptions.ModeFor reports DeleteToTrash the
+// item is sent to the platform recycle bin instead. Per-item errors never
+// abort the queue. Events: ItemStarted, ItemDone, ItemError, QueueDone. No
+// confirmation logic lives in core (UI owns confirmation).
 type DeleteQueue struct {
 	items []string
 	opts  DeleteOptions
@@ -56,7 +94,7 @@ func (q *DeleteQueue) run(ctx context.Context, ch chan<- any) {
 			continue
 		}
 
-		err := removePath(item)
+		err := q.remove(item)
 		if err != nil {
 			ch <- ItemError{Index: i, Source: item, Dest: "", Cause: err}
 			continue
@@ -66,4 +104,33 @@ func (q *DeleteQueue) run(ctx context.Context, ch chan<- any) {
 	}
 
 	ch <- QueueDone{Err: ctx.Err()}
+}
+
+// remove applies the configured policy to a single path: it trashes the path
+// only when ModeFor selects DeleteToTrash and a Trash function is provided;
+// every other case (including nil options) falls back to permanent deletion.
+func (q *DeleteQueue) remove(path string) error {
+	if q.opts.ModeFor != nil && q.opts.ModeFor(path) == DeleteToTrash && q.opts.Trash != nil {
+		return q.opts.Trash(path)
+	}
+	return removePath(path)
+}
+
+// DefaultDeleteOptions returns options implementing the policy: fixed volumes
+// go to the recycle bin; removable, remote and unknown volumes are deleted
+// permanently.
+func DefaultDeleteOptions() DeleteOptions {
+	prober := newVolumeProber()
+	return DeleteOptions{
+		ModeFor: func(path string) DeleteMode {
+			return ModeForVolume(prober(path))
+		},
+		Trash: trashPath,
+	}
+}
+
+// DefaultDeleteMode reports the delete mode the default policy would use for
+// a path (used by the UI to word its confirmation).
+func DefaultDeleteMode(path string) DeleteMode {
+	return ModeForVolume(newVolumeProber()(path))
 }

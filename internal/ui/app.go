@@ -648,9 +648,14 @@ func (a *App) deleteDialog() {
 		return
 	}
 
-	confirm := fmt.Sprintf("Delete %s? (permanent)", sources[0].Name)
+	suffix := "(permanent)"
+	if core.DefaultDeleteMode(panel.CurrentPath()) == core.DeleteToTrash {
+		suffix = "(to recycle bin)"
+	}
+
+	confirm := fmt.Sprintf("Delete %s? %s", sources[0].Name, suffix)
 	if len(sources) > 1 {
-		confirm = fmt.Sprintf("Delete %d items? (permanent)", len(sources))
+		confirm = fmt.Sprintf("Delete %d items? %s", len(sources), suffix)
 	}
 
 	a.ShowFormDialog("Delete", []tview.FormItem{
@@ -675,7 +680,7 @@ func (a *App) runDelete(panel *core.Panel, entries []core.Entry) {
 		items[i] = filepath.Join(path, e.Name)
 	}
 
-	queue := core.NewDeleteQueue(items, core.DeleteOptions{})
+	queue := core.NewDeleteQueue(items, core.DefaultDeleteOptions())
 	ctx, cancel := context.WithCancel(context.Background())
 	a.activeCancel = cancel
 
