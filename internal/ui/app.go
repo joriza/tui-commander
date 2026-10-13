@@ -32,6 +32,10 @@ type App struct {
 	searchMode   bool
 	searchField  *tview.InputField
 	searchOrigin int
+
+	// Built-in pager state (F3). While pagerOpen is true the full-screen
+	// pager page owns the keyboard; see handlePagerKey.
+	pagerOpen bool
 }
 
 // NewApp creates a new dual-panel App with the given panels.
@@ -70,7 +74,7 @@ func (a *App) buildUI() {
 
 	// Key bar at the bottom
 	a.keyBar = tview.NewTextView()
-	a.keyBar.SetText("Tab Panel  Ins/Space Sel  +/-/* Group  Alt+F1/F2 Drive  F2 Reread  F5 Copy  Shift+F5 Dup  F6 Move  Shift+F6 Ren  F7 MkDir  F8 Del  F10 Quit")
+	a.keyBar.SetText("Tab Panel  Ins/Space Sel  +/-/* Group  Alt+F1/F2 Drive  F2 Reread  F3 View  F5 Copy  Shift+F5 Dup  F6 Move  Shift+F6 Ren  F7 MkDir  F8 Del  F10 Quit")
 
 	// Two panels side by side
 	panelsFlex := tview.NewFlex().
@@ -245,9 +249,17 @@ func formatSize(size int64) string {
 }
 
 // handleKey processes global key events for navigation and focus switching.
-// When a dialog is open, only Esc (close dialog) and F10 (quit) are handled
-// at the app level; all other keys pass through to the focused dialog.
+// While the pager is open it owns the keyboard: Esc/F3/F10 close it and all
+// other keys (scrolling included) go to the pager. When a dialog is open, only
+// Esc (close dialog) and F10 (quit) are handled at the app level; all other
+// keys pass through to the focused dialog.
 func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
+	// The pager is a full-screen mode: it takes every key before the panels
+	// or the dialog stack see it.
+	if a.pagerOpen {
+		return a.handlePagerKey(event)
+	}
+
 	// Dialog is open: only Esc and F10 are handled here.
 	if len(a.dialogStack) > 0 {
 		switch {
@@ -334,6 +346,10 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 
 	case event.Key() == tcell.KeyF2:
 		a.rereadFocusedPanel()
+		return nil
+
+	case event.Key() == tcell.KeyF3:
+		a.viewCursorFile()
 		return nil
 
 	case event.Key() == tcell.KeyF5 && event.Modifiers()&tcell.ModShift != 0:

@@ -3,6 +3,8 @@ package ui
 import (
 	"strings"
 	"testing"
+
+	"tui-commander/internal/core"
 )
 
 func TestTruncateMiddle(t *testing.T) {
@@ -131,5 +133,69 @@ func TestNameColumnWidthNonDecreasing(t *testing.T) {
 			t.Fatalf("nameColumnWidth(%d) = %d is less than nameColumnWidth(%d) = %d", w, got, w-1, prev)
 		}
 		prev = got
+	}
+}
+
+func TestPagerTitle(t *testing.T) {
+	tests := []struct {
+		name      string
+		fileName  string
+		preview   core.TextPreview
+		wantName  string
+		wantSize  string
+		wantTrunc bool
+	}{
+		{
+			name:      "plain file carries name and size",
+			fileName:  "notes.txt",
+			preview:   core.TextPreview{Size: 1536},
+			wantName:  "notes.txt",
+			wantSize:  "1.5KB",
+			wantTrunc: false,
+		},
+		{
+			name:      "truncated preview is marked",
+			fileName:  "big.log",
+			preview:   core.TextPreview{Size: 2048, Truncated: true},
+			wantName:  "big.log",
+			wantSize:  "2.0KB",
+			wantTrunc: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			title := pagerTitle(tt.fileName, tt.preview)
+			if !strings.Contains(title, tt.wantName) {
+				t.Fatalf("title %q does not contain the file name %q", title, tt.wantName)
+			}
+			if !strings.Contains(title, tt.wantSize) {
+				t.Fatalf("title %q does not contain the size %q", title, tt.wantSize)
+			}
+			if hasTrunc := strings.Contains(title, "truncated"); hasTrunc != tt.wantTrunc {
+				t.Fatalf("title %q truncated marker = %v, want %v", title, hasTrunc, tt.wantTrunc)
+			}
+		})
+	}
+}
+
+func TestPagerBodyText(t *testing.T) {
+	const content = "hello\nworld\n"
+	got := pagerBody(core.TextPreview{Text: content, Size: int64(len(content))})
+	if got != content {
+		t.Fatalf("pagerBody() = %q, want %q", got, content)
+	}
+}
+
+func TestPagerBodyBinaryDoesNotDumpBytes(t *testing.T) {
+	got := pagerBody(core.TextPreview{Binary: true, Size: 2048, Text: "raw-bytes"})
+	if !strings.Contains(got, "Binary") {
+		t.Fatalf("binary body %q does not mention that the file is binary", got)
+	}
+	if !strings.Contains(got, "2.0KB") {
+		t.Fatalf("binary body %q does not carry the size", got)
+	}
+	if strings.Contains(got, "raw-bytes") {
+		t.Fatalf("binary body %q dumped raw content", got)
 	}
 }
