@@ -74,7 +74,7 @@ func (a *App) buildUI() {
 
 	// Key bar at the bottom
 	a.keyBar = tview.NewTextView()
-	a.keyBar.SetText("Tab Panel  Ins/Space Sel  +/-/* Group  Alt+F1/F2 Drive  F2 Reread  F3 View  F5 Copy  Shift+F5 Dup  F6 Move  Shift+F6 Ren  F7 MkDir  F8 Del  F10 Quit")
+	a.keyBar.SetText("Tab Panel  Ins/Space Sel  +/-/* Group  Alt+F1/F2 Drive  F2 Reread  F3 View  F4 Edit  F5 Copy  Shift+F5 Dup  F6 Move  Shift+F6 Ren  F7 MkDir  F8 Del  F10 Quit")
 
 	// Two panels side by side
 	panelsFlex := tview.NewFlex().
@@ -350,6 +350,10 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 
 	case event.Key() == tcell.KeyF3:
 		a.viewCursorFile()
+		return nil
+
+	case event.Key() == tcell.KeyF4:
+		a.editCursorFile()
 		return nil
 
 	case event.Key() == tcell.KeyF5 && event.Modifiers()&tcell.ModShift != 0:
