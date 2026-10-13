@@ -146,9 +146,28 @@ copy-and-run, portable from a USB stick.
       (Superseded 2026-10-12: the consent prompt now renders after adding
       `"question": "allow"`; the blocked RDD lineage was abandoned — see the
       decisions log and evidence for details.)
-- [ ] T8: View/Edit + polish — F3 pager, F4 editor handoff, README final,
-      optimized static build (`-ldflags="-s -w"`), smoke test on a real
-      folder tree, portable-run checklist.
+- [x] T8: View/Edit + polish (S7) — delivered as T8a, T8b and T8c (evidence
+      below).
+      - [x] T8a (commit `b6a0b21`): F3 built-in pager.
+            `core.ReadTextPreview` reads a bounded 1 MiB sample, flags binary
+            content (a NUL byte or a control-byte majority), strips a UTF-8 BOM
+            and caps each line at 10000 runes, so neither a huge nor a binary
+            file is ever loaded whole. The pager is a full-screen scrollable
+            `TextView`: Esc/F3/F10 close it and every other key goes to the text
+            view, never to the panels underneath. Folders show a message.
+      - [x] T8b (commit `db7a01d`): F4 external editor handoff. `EDITOR` (then
+            `VISUAL`) is parsed WITHOUT a shell — a leading quoted program path
+            is honoured and the file path is appended as one argument, so shell
+            metacharacters in the path are inert. The terminal is handed over
+            with tview's `Suspend` and the panel is reread on return. An unset
+            editor, a folder target or a failed launch reports instead of
+            silently doing nothing.
+      - [x] T8c (this commit): README reworked — an accurate key map, the
+            portable-run checklist, the OS-mirrored delete behavior and the
+            external-editor contract. The documented build was run by the
+            parent and produced a 3.66 MB static binary.
+      - [ ] T8 smoke: user run on a real folder tree (F3/F4 on real files,
+            pager scrolling, panel reread after the editor returns).
 
 ## Evidence
 
@@ -178,6 +197,10 @@ copy-and-run, portable from a USB stick.
 | T7f | `0dde3c0` (branch `tui-v0`) | Esc on the main view now clears the focused panel's selection when one exists (TC behaviour); with no selection it is a no-op. Extracted render-free `clearSelectionIfAny(panel)` (unit-testable without a running tview app) with tests in `internal/ui/ops_test.go`; first attempt wired the clear+render into one `*App` method and RED-panicked on `(*tview.TextView).Clear(nil)` — proving `render()` is not headless-safe, so the helper was split to keep the pure part testable. Parent verified: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green; `gofmt -l internal/ui` empty. Visual smoke: pending user test |
 
 | T9 | `2a1993b` (branch `tui-v0`) | Delete now mirrors the OS instead of always removing permanently. Core: `DeleteMode`, `VolumeKind`, `VolumeProber`, `ModeForVolume`, `DeleteOptions{ModeFor, Trash}`, `DefaultDeleteOptions()`, `DefaultDeleteMode()`; the queue routes through `q.remove` (existence check and every event unchanged). Zero-value `DeleteOptions{}` still deletes permanently, so existing callers and tests are untouched. Platform: `delete_windows.go` adds `newVolumeProber` (`GetDriveType` on the volume root, `C:` turned into `C:\`; remote/CD-ROM/RAM-disk/unknown map to `VolumeUnknown`) and `trashPath` (`SHFileOperationW` with a locally declared `SHFILEOPSTRUCTW`, double-NUL `pFrom`, `FO_DELETE` plus `FOF_ALLOWUNDO|FOF_NOCONFIRMATION|FOF_SILENT|FOF_NOCONFIRMMKDIR`); `delete_other.go` always reports `VolumeUnknown`, so other platforms stay permanent. UI: `runDelete` uses `DefaultDeleteOptions()`; the F8 confirmation renders `(to recycle bin)` or `(permanent)` from `DefaultDeleteMode(panel.CurrentPath())` for BOTH the single and the multi (count-only) forms. Test-first: worker RED (undefined `ModeForVolume`/`DeleteMode`/…) → GREEN with 5 new tests covering the matrix (fixed ⇒ `Trash` called and the file survives; removable/unknown ⇒ permanent and `Trash` never called; trash mode with nil `Trash` ⇒ permanent fallback with no `ItemError`; nil `ModeFor` ⇒ permanent). Independent verifier (`gentle-ai-verify`, read-only): NO blocking findings; confirmed the `SHFILEOPSTRUCTW` layout (x64 size 56, padding after `wFunc` and `fFlags`), the real `SHFileOperationW` constants, the `int` error-code return (not an HRESULT) plus `fAnyOperationsAborted`, unchanged `removePath`, and a `go.mod` carrying only the x/sys promotion. Parent additionally executed the REAL syscall end-to-end on Windows with a throwaway `cmd/trashprobe` (since removed): `DefaultDeleteMode` resolved to trash for a temp directory, the file disappeared from the source, and the item was then found in the Recycle Bin via `Shell.Application` — proving the otherwise-untestable syscall path works. Parent verified: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green, `GOOS=linux` build green, and `gofmt` clean on LF-normalized content (the `internal/core` listings are the pre-existing `i/lf w/crlf` checkout artifact under `core.autocrlf=true`). RDD clone-local OFF — ordinary checks only. Visual smoke confirmed by user (2026-10-13): F8 on a FIXED volume sends the file to the Recycle Bin |
+
+| T8a | `b6a0b21` (branch `tui-v0`) | F3 built-in pager (S7). New `internal/core/preview.go` (`TextPreview{Text,Size,Truncated,Binary}` + `ReadTextPreview(path,maxBytes)`) and `internal/ui/view.go` (pure `pagerTitle`/`pagerBody` + `viewCursorFile`/`openPager`/`handlePagerKey`/`closePager`). Worker RED (undefined `ReadTextPreview`/`maxPreviewLineRunes`; undefined `pagerTitle`/`pagerBody`) → GREEN: 11 core tests (ASCII, NUL binary, truncated, empty, per-line cap, missing file, CRLF, BOM, control-byte threshold both sides) + 4 UI tests. Parent verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1`, `GOOS=linux` build all green, `gofmt -l internal/ui` empty; read view.go, preview.go and the app.go diff line-by-line, and confirmed the `entries[panel.Cursor()]` idiom matches the pre-existing `enter()`. Parent polish: clearer folder message. Pager key routing has no automated test (headless, and `render()` is not headless-safe) — structural check only; the writer verified the routing against tview v0.42.0 source. RDD clone-local OFF. Visual smoke: pending user test |
+| T8b | `db7a01d` (branch `tui-v0`) | F4 external editor handoff (S7). New `internal/ui/editor.go` (`parseEditorCommand`, `splitArgs`, `resolveEditor`, `editCursorFile`) and `internal/ui/editor_test.go`. The command is parsed WITHOUT a shell (leading quoted program path honoured, whitespace collapsed) and the file path is appended as one argument, so shell metacharacters in the path are inert. The terminal is handed to the editor through `tviewApp.Suspend` and the panel is reread on return. Worker RED (undefined `parseEditorCommand`) → GREEN: 9 parser cases + 3 resolver cases (`EDITOR` beats `VISUAL`; blank `EDITOR` falls to `VISUAL`; both blank ⇒ not set). Parent found and fixed a real defect: the worker swallowed the editor's error (`_ = cmd.Run()`), so a failed launch was silent — the error is now captured and surfaced after the reread; the first corrective edit left a duplicated tail block, caught by the build (`editor.go:150 syntax error`) and fixed. Parent verified: build, vet, `go test ./... -count=1`, `GOOS=linux` build all green, `gofmt -l internal/ui` empty. `Suspend` and argument parsing cannot be executed headless — structural check only. RDD clone-local OFF. Visual smoke: pending user test |
+| T8c | `(this commit)` (branch `tui-v0`) | README reworked: accurate key map, portable-run checklist, the OS-mirrored delete behavior (fixed volume ⇒ Recycle Bin, otherwise permanent, not configurable) and the external-editor contract. Parent ran the documented build (`CGO_ENABLED=0 go build -trimpath -ldflags="-s -w"`) and observed a 3.66 MB static `tui-commander.exe`. Documentation only — no code change, so no additional check applies |
 
 ## Decisions log
 
@@ -286,3 +309,13 @@ copy-and-run, portable from a USB stick.
   volume holding `$HOME`, delete permanently elsewhere. This is a KNOWN
   DIFFERENCE for the sibling GUI app: if it implements a Linux trash, the two
   apps will diverge on Linux. That divergence is intentional and recorded here.
+- 2026-10-13 (T8b, user spec): the external editor is resolved from `EDITOR`
+  and then `VISUAL`, and NEVER falls back to a hardcoded default such as
+  `notepad` or `vi`. v0 has no configuration file, so silently choosing an
+  editor would hide the fact that none is configured; an unset editor produces
+  a message instead. The command string is parsed without a shell because the
+  file path may contain shell metacharacters.
+- 2026-10-13 (T8a design): the built-in pager reads at most 1 MiB, flags binary
+  content and caps each line at 10000 runes. A file manager must never wedge the
+  terminal on a huge file or dump raw bytes at it; the pager is a convenience,
+  and the external editor (F4) is the escape hatch for anything larger.
