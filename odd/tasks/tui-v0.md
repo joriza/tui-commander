@@ -28,8 +28,12 @@ copy-and-run, portable from a USB stick.
 - S3: Copy (F5) and move (F6) operate on the selection set, run through a
   sequential queue, report per-item and total progress, and can be cancelled;
   errors are collected and reported without aborting the queue.
-- S4: Delete (F8) requires confirmation and deletes permanently; readonly and
-  hidden files are handled explicitly.
+- S4: Delete (F8 and Delete) requires confirmation; readonly and hidden files
+  are handled explicitly. Deletion mirrors the operating system rather than
+  always removing permanently: a path on a FIXED volume goes to the recycle
+  bin; a path on a removable, remote or unknown volume is deleted permanently.
+  The policy is fixed to the platform behaviour — v0 has no configuration
+  system for it.
 - S5: Rename (Shift+F6) and make directory (F7) validate names against the
   platform rules (reserved names, trailing dots/spaces on Windows).
 - S6: Incremental filter narrows the visible list as the user types; clearing
@@ -107,6 +111,18 @@ copy-and-run, portable from a USB stick.
             clears the whole selection in the focused panel (Total Commander
             behaviour); with no selection Esc stays a no-op so F10 remains the
             only quit key.
+- [x] T9 (user request 2026-10-12, pulled ahead of T8): OS-aware delete.
+      Delete mirrors the platform: a path whose volume is FIXED goes to the
+      recycle bin; a removable, remote or unknown volume is deleted
+      permanently. Core stays policy-pure — `DeleteMode`, `VolumeKind`,
+      `ModeForVolume` and injectable `DeleteOptions{ModeFor, Trash}` whose
+      ZERO VALUE keeps the previous permanent-only behaviour. Windows probes
+      with `GetDriveType` and trashes with `SHFileOperationW` (declared
+      locally: `x/sys/windows` does not wrap it); other platforms always
+      report `VolumeUnknown`, i.e. permanent. The F8 confirmation says
+      `(to recycle bin)` or `(permanent)` from the resolved mode. There is NO
+      config system: the policy is the platform behaviour. Linux scope is
+      documented as a known difference (see the decisions log).
 - [x] T6c (commit `9099946`): ItemStarted.Size in core; OperationRunner
       byte tracking; progress modal with two text bars (file% + total%) +
       ETA/speed after 2% (EMA, TC-style); ShowFormDialog extraRows (delete
@@ -159,7 +175,9 @@ copy-and-run, portable from a USB stick.
 | T7e | `45ed003` (branch `tui-v0`) | Folder date column showed the zero time. Root cause confirmed by a failing test: `core.Panel.Load` set `Entry.ModTime` only for non-directories (`if !de.IsDir()`). Fix reads `Info()` for both kinds (Size stays 0 for dirs). Test-first: `TestLoad_SetsDirectoryModTime` RED (`0001-01-01` vs the seeded mtime) → GREEN. Parent verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green; `gofmt -l internal/ui` empty. RDD clone-local OFF — ordinary checks only. Visual smoke: pending user test |
 | T7a2 | `a489e09` (branch `tui-v0`) | F5/F6/F8 operate on `selectedEntries` (selection-only when non-empty, cursor fallback; cursor never auto-included). Multi-selection dialogs and progress titles show the item COUNT, never names. Single source keeps the full-destination (rename-on-copy/move) flow; multi source treats the destination as a directory and joins each name; multi move into the source directory is a no-op. Pure helpers `opLabel`/`targetPaths`/`overwritePrompt`/`anyTargetExists` extracted, tested in `internal/ui/ops_test.go` (worker RED = build failure on undefined symbols → GREEN). Independent verifier (`gentle-ai-verify`, tier high/unassessable): no blocking findings, single-selection behaviour preserved, tests assert real behaviour. Parent restored the `(permanent)` delete warning the worker had dropped. Parent verified directly: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green; `gofmt -l internal/ui` empty; diff reviewed line-by-line. Visual smoke: pending user test |
 
-| T7f | `(this commit)` (branch `tui-v0`) | Esc on the main view now clears the focused panel's selection when one exists (TC behaviour); with no selection it is a no-op. Extracted render-free `clearSelectionIfAny(panel)` (unit-testable without a running tview app) with tests in `internal/ui/ops_test.go`; first attempt wired the clear+render into one `*App` method and RED-panicked on `(*tview.TextView).Clear(nil)` — proving `render()` is not headless-safe, so the helper was split to keep the pure part testable. Parent verified: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green; `gofmt -l internal/ui` empty. Visual smoke: pending user test |
+| T7f | `0dde3c0` (branch `tui-v0`) | Esc on the main view now clears the focused panel's selection when one exists (TC behaviour); with no selection it is a no-op. Extracted render-free `clearSelectionIfAny(panel)` (unit-testable without a running tview app) with tests in `internal/ui/ops_test.go`; first attempt wired the clear+render into one `*App` method and RED-panicked on `(*tview.TextView).Clear(nil)` — proving `render()` is not headless-safe, so the helper was split to keep the pure part testable. Parent verified: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green; `gofmt -l internal/ui` empty. Visual smoke: pending user test |
+
+| T9 | `2a1993b` (branch `tui-v0`) | Delete now mirrors the OS instead of always removing permanently. Core: `DeleteMode`, `VolumeKind`, `VolumeProber`, `ModeForVolume`, `DeleteOptions{ModeFor, Trash}`, `DefaultDeleteOptions()`, `DefaultDeleteMode()`; the queue routes through `q.remove` (existence check and every event unchanged). Zero-value `DeleteOptions{}` still deletes permanently, so existing callers and tests are untouched. Platform: `delete_windows.go` adds `newVolumeProber` (`GetDriveType` on the volume root, `C:` turned into `C:\`; remote/CD-ROM/RAM-disk/unknown map to `VolumeUnknown`) and `trashPath` (`SHFileOperationW` with a locally declared `SHFILEOPSTRUCTW`, double-NUL `pFrom`, `FO_DELETE` plus `FOF_ALLOWUNDO|FOF_NOCONFIRMATION|FOF_SILENT|FOF_NOCONFIRMMKDIR`); `delete_other.go` always reports `VolumeUnknown`, so other platforms stay permanent. UI: `runDelete` uses `DefaultDeleteOptions()`; the F8 confirmation renders `(to recycle bin)` or `(permanent)` from `DefaultDeleteMode(panel.CurrentPath())` for BOTH the single and the multi (count-only) forms. Test-first: worker RED (undefined `ModeForVolume`/`DeleteMode`/…) → GREEN with 5 new tests covering the matrix (fixed ⇒ `Trash` called and the file survives; removable/unknown ⇒ permanent and `Trash` never called; trash mode with nil `Trash` ⇒ permanent fallback with no `ItemError`; nil `ModeFor` ⇒ permanent). Independent verifier (`gentle-ai-verify`, read-only): NO blocking findings; confirmed the `SHFILEOPSTRUCTW` layout (x64 size 56, padding after `wFunc` and `fFlags`), the real `SHFileOperationW` constants, the `int` error-code return (not an HRESULT) plus `fAnyOperationsAborted`, unchanged `removePath`, and a `go.mod` carrying only the x/sys promotion. Parent additionally executed the REAL syscall end-to-end on Windows with a throwaway `cmd/trashprobe` (since removed): `DefaultDeleteMode` resolved to trash for a temp directory, the file disappeared from the source, and the item was then found in the Recycle Bin via `Shell.Application` — proving the otherwise-untestable syscall path works. Parent verified: `go build ./...`, `go vet ./...`, `go test ./... -count=1` all green, `GOOS=linux` build green, and `gofmt` clean on LF-normalized content (the `internal/core` listings are the pre-existing `i/lf w/crlf` checkout artifact under `core.autocrlf=true`). RDD clone-local OFF — ordinary checks only. Visual smoke: pending user test |
 
 ## Decisions log
 
@@ -240,5 +258,31 @@ copy-and-run, portable from a USB stick.
   is a no-op. Duplicate (Shift+F5) and Rename (Shift+F6) remain single-entry.
 - 2026-10-12 (T7e fix, user): `core.Panel.Load` now reads `Info()` for directories
   as well, so the folder date column shows the real mtime (`Size` stays 0 for
-  dirs). The earlier `(permanent)` warning on the delete confirmation is kept for
-  both single- and multi-item deletes.
+  dirs). The delete confirmation keeps its suffix for both single- and
+  multi-item deletes (superseded 2026-10-12 by T9: that suffix is now
+  `(to recycle bin)` or `(permanent)`, depending on the resolved mode).
+- 2026-10-12 (T9 delete policy, user): deletion must behave like the operating
+  system, not like a shredder. A path on a FIXED volume goes to the recycle
+  bin; a removable, remote or unknown volume is deleted permanently. This
+  mirrors native Windows semantics — `FOF_ALLOWUNDO` on a removable volume
+  deletes permanently in silence anyway, so a forced "always recycle" would be
+  the surprising behaviour. `SHFileOperationW` had to be declared by hand
+  because `x/sys/windows` does not wrap it (`GetDriveType` IS wrapped); the
+  module was already in the graph via tcell, so this only promotes
+  `golang.org/x/sys` from indirect to direct. Accepted v0 caveats: some USB
+  drives report `DRIVE_FIXED` and get that volume's recycle bin, a pendrive's
+  recycle bin lives on the pendrive, and long `\\?\` paths degrade to
+  `VolumeUnknown` (permanent).
+- 2026-10-12 (T9, user, explicit): NO configuration system. An earlier draft
+  proposed a `[delete] mode = auto|permanent|trash` setting; the user rejected
+  it — the policy is the platform behaviour. Revisit only if a real need
+  appears.
+- 2026-10-12 (T9, user, deliberate scope): Linux stays permanent, and that is
+  documented rather than implemented. Linux exposes no OS recycle-bin API
+  callable from Go; detection would need sysfs (`/sys/block/<dev>/removable`)
+  plus a path → mount → device mapping (`/proc/mounts`, longest-prefix match),
+  which is fragile under LVM, dm-crypt, btrfs subvolumes, overlay and network
+  mounts. Pragmatic approximation for a future Linux pass: trash only on the
+  volume holding `$HOME`, delete permanently elsewhere. This is a KNOWN
+  DIFFERENCE for the sibling GUI app: if it implements a Linux trash, the two
+  apps will diverge on Linux. That divergence is intentional and recorded here.
