@@ -1,10 +1,12 @@
 # tui-commander
 
 A behavior-first, Midnight Commander-inspired dual-panel terminal file manager.
-Single static binary — copy and run, nothing to install.
+Written in **Go** — pure Go, no cgo, no external dependencies at run time:
+a single static binary. Copy and run, nothing to install.
 
-**Status:** v0, feature-complete. Spec and task log:
-[odd/tasks/tui-v0.md](odd/tasks/tui-v0.md).
+**Status:** v0 feature-complete; v1 in progress on branch `tui-v1`.
+Spec and task log: [odd/tasks/tui-v0.md](odd/tasks/tui-v0.md) (v0),
+[odd/tasks/tui-v1.md](odd/tasks/tui-v1.md) (v1).
 
 Lessons and fixes for the future GUI sibling:
 [odd/lessons-for-sibling-app.md](odd/lessons-for-sibling-app.md) — updated with every fix.
@@ -58,10 +60,10 @@ go build -trimpath -ldflags="-s -w" -o tui-commander .
 | --- | --- |
 | `Tab` | Switch the active panel |
 | Arrows, `Home`, `End` | Move the cursor |
-| `Ctrl+PgUp` / `Ctrl+PgDn` | Scroll the cursor by 10 lines |
+| `PgUp` / `PgDn`, `Ctrl+PgUp` / `Ctrl+PgDn` | Move the cursor by 10 lines |
 | `Enter` | Descend into the directory under the cursor |
 | `Backspace` | Go to the parent directory |
-| Letter keys | Quick search: a window narrows the listing to names containing what you type. `Esc` cancels, `Enter` jumps to the first match |
+| Letter keys | Quick search: a window narrows the listing to names containing what you type (case-insensitive). `Esc` cancels, `Enter` jumps to the first match |
 | `Insert` / `Space` | Select the cursor entry; `Insert` also advances |
 | `+` / `-` / `*` | Select by mask / deselect by mask / invert the selection |
 | `Alt+F1` / `Alt+F2` | Choose a drive or volume for the left / right panel |
