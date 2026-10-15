@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
@@ -64,37 +65,45 @@ func (a *App) ShowMessageDialog(title, message string, callback func()) {
 	a.dialogStack = append(a.dialogStack, title)
 }
 
-// ShowConfirmDialog displays a modal yes/no confirmation. When defaultNo
-// is true the initial focus sits on the No button, so Enter declines and
-// confirming stays a deliberate act; Esc also declines via the global
-// dialog key handling.
+// ShowConfirmDialog displays a modal yes/no confirmation. Arrow keys and
+// Tab move the selection between the buttons; when defaultNo is true the
+// initial focus sits on the No button, so Enter declines and confirming
+// stays a deliberate act. Esc also declines via the global dialog key
+// handling. The modal is focused explicitly: without that, application
+// focus stays on the view below and the dialog never receives keys.
 func (a *App) ShowConfirmDialog(title, message, yesLabel, noLabel string, defaultNo bool, onConfirm func(confirmed bool)) {
-	textView := tview.NewTextView().
+	modal := tview.NewModal().
 		SetText(message).
-		SetDynamicColors(true)
-
-	form := tview.NewForm().
-		AddFormItem(textView).
-		AddButton(yesLabel, func() {
+		AddButtons([]string{yesLabel, noLabel}).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			a.closeTopDialog()
-			onConfirm(true)
-		}).
-		AddButton(noLabel, func() {
-			a.closeTopDialog()
-			onConfirm(false)
+			onConfirm(buttonIndex == 0)
 		})
-	form.SetBorder(true).
-		SetTitle(fmt.Sprintf(" %s ", title)).
+	// SetTitle is a Box method that returns *Box, so it is applied as a
+	// statement instead of chaining into the Modal builder.
+	modal.SetTitle(fmt.Sprintf(" %s ", title)).
 		SetTitleAlign(tview.AlignCenter)
 	if defaultNo {
-		// Elements are indexed with buttons after form items:
-		// 0 = message, 1 = Yes, 2 = No.
-		form.SetFocus(2)
+		modal.SetFocus(1)
+	} else {
+		modal.SetFocus(0)
 	}
+	// tview buttons do not react to arrows on their own; map the arrow
+	// keys onto the modal's Tab/Backtab traversal so the selection moves
+	// with the arrows as well.
+	modal.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyRight, tcell.KeyDown:
+			return tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)
+		case tcell.KeyLeft, tcell.KeyUp:
+			return tcell.NewEventKey(tcell.KeyBacktab, 0, tcell.ModNone)
+		}
+		return event
+	})
 
-	height := strings.Count(message, "\n") + 5
-	a.pages.AddPage(title, a.wrapDialog(form, height), true, true)
+	a.pages.AddPage(title, modal, true, true)
 	a.dialogStack = append(a.dialogStack, title)
+	a.tviewApp.SetFocus(modal)
 }
 
 // ShowErrorDialog displays a modal dialog with an error message and an OK
@@ -233,7 +242,8 @@ func (a *App) wrapDialog(content tview.Primitive, height int) tview.Primitive {
 		AddItem(nil, 0, 1, false)
 }
 
-// closeTopDialog removes the topmost dialog page from the stack.
+// closeTopDialog removes the topmost dialog page from the stack and
+// restores keyboard focus (see restoreFocus).
 func (a *App) closeTopDialog() {
 	if len(a.dialogStack) == 0 {
 		return
@@ -241,4 +251,24 @@ func (a *App) closeTopDialog() {
 	name := a.dialogStack[len(a.dialogStack)-1]
 	a.dialogStack = a.dialogStack[:len(a.dialogStack)-1]
 	a.pages.RemovePage(name)
+	a.restoreFocus()
+}
+
+// restoreFocus hands keyboard focus back to the frontmost surviving
+// dialog, or to the focused panel view when no dialog is left. Without
+// this, the application focus keeps pointing at the removed primitive
+// and the keyboard goes dead (the C1/C2 class of bug from the lessons
+// log).
+func (a *App) restoreFocus() {
+	if len(a.dialogStack) > 0 {
+		if p := a.pages.GetPage(a.dialogStack[len(a.dialogStack)-1]); p != nil {
+			a.tviewApp.SetFocus(p)
+			return
+		}
+	}
+	if a.focusIndex == 1 {
+		a.tviewApp.SetFocus(a.rightView)
+	} else {
+		a.tviewApp.SetFocus(a.leftView)
+	}
 }
