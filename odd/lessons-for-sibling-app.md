@@ -44,6 +44,12 @@ bug fix or behavior decision appends a row here in the same commit.**
 - F6 is ONE dialog: same directory → rename, different → move (decided by
   `core.SameDirectory`).
 - Copy/move destination defaults to the other panel's path (TC behavior).
+- Modal dialog branding is MANDATORY (owner decision 2026-10-15, after the
+  quit-dialog rework): centered dialog, double-line border with a centered
+  title, centered options; arrows and Tab move the selection, Enter
+  confirms the focused option, and the safe answer holds the default
+  focus. This is the tview.Modal style adopted in ShowConfirmDialog.
+  Every new dialog follows it; deviations need an explicit owner decision.
 
 ## Engine design decisions (carried to the sibling)
 
