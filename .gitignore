@@ -20,3 +20,7 @@ vendor/
 # OS
 .DS_Store
 Thumbs.db
+
+# Third-party reference material (Norton Commander screenshots) — kept local,
+# never published: the project is clean-room.
+docs/imgs/
