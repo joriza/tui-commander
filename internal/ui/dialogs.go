@@ -64,6 +64,39 @@ func (a *App) ShowMessageDialog(title, message string, callback func()) {
 	a.dialogStack = append(a.dialogStack, title)
 }
 
+// ShowConfirmDialog displays a modal yes/no confirmation. When defaultNo
+// is true the initial focus sits on the No button, so Enter declines and
+// confirming stays a deliberate act; Esc also declines via the global
+// dialog key handling.
+func (a *App) ShowConfirmDialog(title, message, yesLabel, noLabel string, defaultNo bool, onConfirm func(confirmed bool)) {
+	textView := tview.NewTextView().
+		SetText(message).
+		SetDynamicColors(true)
+
+	form := tview.NewForm().
+		AddFormItem(textView).
+		AddButton(yesLabel, func() {
+			a.closeTopDialog()
+			onConfirm(true)
+		}).
+		AddButton(noLabel, func() {
+			a.closeTopDialog()
+			onConfirm(false)
+		})
+	form.SetBorder(true).
+		SetTitle(fmt.Sprintf(" %s ", title)).
+		SetTitleAlign(tview.AlignCenter)
+	if defaultNo {
+		// Elements are indexed with buttons after form items:
+		// 0 = message, 1 = Yes, 2 = No.
+		form.SetFocus(2)
+	}
+
+	height := strings.Count(message, "\n") + 5
+	a.pages.AddPage(title, a.wrapDialog(form, height), true, true)
+	a.dialogStack = append(a.dialogStack, title)
+}
+
 // ShowErrorDialog displays a modal dialog with an error message and an OK
 // button. The message is shown in a scrollable TextView, one line per error.
 func (a *App) ShowErrorDialog(title, message string, callback func()) {

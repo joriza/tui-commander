@@ -75,7 +75,7 @@ go build -trimpath -ldflags="-s -w" -o tui-commander .
 | `F7` | Create a directory |
 | `F8` or `Delete` | Delete |
 | `Esc` | Close the topmost dialog, or clear the selection on the main view |
-| `F10` | Quit |
+| `F10` | Quit — asks for confirmation first; the default answer is No |
 
 Copy, move and delete act on the selection set when one exists, and on the
 cursor entry otherwise. A multi-selection is always reported as a count, never
@@ -108,4 +108,4 @@ terminal. `Esc`, `F3` and `F10` close it.
 
 ## License
 
-MIT.
+MIT — see [LICENSE](LICENSE).

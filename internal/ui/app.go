@@ -28,6 +28,10 @@ type App struct {
 	dialogStack  []string
 	activeCancel context.CancelFunc
 
+	// stopApp halts the application. A seam so tests can observe quitting
+	// without running the tview event loop; NewApp wires tviewApp.Stop.
+	stopApp func()
+
 	// Quick search window state (TC "letter with search window").
 	searchMode   bool
 	searchField  *tview.InputField
@@ -40,12 +44,14 @@ type App struct {
 
 // NewApp creates a new dual-panel App with the given panels.
 func NewApp(left, right *core.Panel) *App {
-	return &App{
+	app := &App{
 		leftPanel:  left,
 		rightPanel: right,
 		focusIndex: 0,
 		tviewApp:   tview.NewApplication(),
 	}
+	app.stopApp = app.tviewApp.Stop
+	return app
 }
 
 // Run starts the tview event loop.
@@ -57,6 +63,25 @@ func (a *App) Run() error {
 // Stop halts the application.
 func (a *App) Stop() {
 	a.tviewApp.Stop()
+}
+
+// quitDialogTitle is the pages/stack name of the quit confirmation dialog.
+const quitDialogTitle = "Quit"
+
+// confirmQuit opens the quit confirmation dialog (default answer No), so
+// quitting is always a deliberate act. It may stack on top of any open
+// dialog; opening it twice is a no-op.
+func (a *App) confirmQuit() {
+	for _, name := range a.dialogStack {
+		if name == quitDialogTitle {
+			return
+		}
+	}
+	a.ShowConfirmDialog(quitDialogTitle, "Quit tui-commander?", "Quit", "No", true, func(confirmed bool) {
+		if confirmed {
+			a.stopApp()
+		}
+	})
 }
 
 func (a *App) buildUI() {
@@ -272,7 +297,7 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 			return nil
 
 		case event.Key() == tcell.KeyF10:
-			a.tviewApp.Stop()
+			a.confirmQuit()
 			return nil
 		}
 		// Pass all other keys through to the dialog primitive.
@@ -389,7 +414,7 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 		}
 
 	case event.Key() == tcell.KeyF10:
-		a.tviewApp.Stop()
+		a.confirmQuit()
 		return nil
 
 	case event.Key() == tcell.KeyInsert:

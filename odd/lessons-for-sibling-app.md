@@ -37,7 +37,8 @@ bug fix or behavior decision appends a row here in the same commit.**
   Shift+F5 duplicate, Shift+F6 rename in place, F7 mkdir, F8 and Delete
   delete; plain-letter quick search (no modifier, case-insensitive);
   Alt+F1/Alt+F2 drive switch.
-- Esc closes the topmost dialog and NEVER quits; F10 always quits.
+- Esc closes the topmost dialog and NEVER quits; F10 asks for confirmation
+  before quitting, with No as the default answer.
 - Ctrl+PgUp/Ctrl+PgDn scroll by page — step must equal the visible row count
   (TC behavior); current fixed ±10 is a recorded follow-up.
 - F6 is ONE dialog: same directory → rename, different → move (decided by
