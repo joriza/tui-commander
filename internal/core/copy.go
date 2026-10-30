@@ -289,8 +289,8 @@ func (q *CopyQueue) copyItem(ctx context.Context, src, dst string, rep *copyRepo
 
 // copyLink duplicates a symlink or junction as a new link pointing at the
 // same target. It does not read or write the target's contents, so a link
-	// to a parent directory cannot hang the copy in a loop and a link to a
-	// large or remote tree is not duplicated.
+// to a parent directory cannot hang the copy in a loop and a link to a
+// large or remote tree is not duplicated.
 func (q *CopyQueue) copyLink(src, dst string) error {
 	target, err := os.Readlink(src)
 	if err != nil {

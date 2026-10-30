@@ -57,33 +57,24 @@ New for v1:
   reports the path the user knows. The single call that does not go through the
   `os` package — `SHFileOperationW` in `delete_windows.go` — is covered by a
   build-tagged test instead of by a prefix.
-- **S11**: (to be specified with A2) A directory entry that is a symlink or
-  junction is marked in the listing and is never traversed by copy, move or
-  delete unless explicitly requested. Deleting a link removes the link, never
-  the target.
+- **S11**: A directory entry that is a symlink or junction is marked in the
+  listing and is never traversed by copy, move or delete unless explicitly
+  requested. Deleting a link removes the link, never the target.
 - **S12**: (to be specified with B1) Sorting is selectable per panel —
   name, size, modification time, extension — each with a directories-first and
   a reverse toggle, and each panel keeps its own order across focus switches
   (S1 already promises this).
 
-## Code inventory (audited 2026-10-13, branch `tui-v1`)
+## Code inventory (updated 2026-10-30, branch `main`)
 
 | Finding | Evidence |
 | --- | --- |
 | All filesystem syscalls already live in `internal/core` — none in `internal/ui` | 23 production files scanned; every `os.*` hit is in `internal/core/*.go`. `internal/ui` only calls `filepath.Join` (11 sites) and `exec.Command` (editor) |
-| `ExtendLongPath` is defined and tested, never called, and not needed | `internal/core/paths_windows.go:14`; 10 uses, all in `*_test.go`. Checked against the Go 1.26 sources: `runtime/os_windows.go` sets the PEB `IsLongPathAwareProcess` bit and then `internal/syscall/windows.CanUseLongPaths = true`, which turns `os.fixLongPath` (`os/path_windows.go`) into a no-op — the `os` package deliberately does not prefix, Windows extends for the process. Wiring it would duplicate that and leak the prefix into `*os.PathError`, dialogs and the editor path |
-| Long paths work end to end here, measured | 328-character path: `os.ReadDir`, `os.Stat`, `os.ReadFile` and `os.Open` all succeed unprefixed. 339-character path: `SHFileOperationW` via `NewDeleteQueue` trashes it. `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem\LongPathsEnabled = 1`. Locked down by `internal/core/longpath_windows_test.go` |
-| Symlink/junction handling does not exist | zero hits for `Lstat`, `Readlink`, `Symlink`, `ModeSymlink`, `Reparse`, `junction` across all `*.go` |
-- Production syscall sites that can receive an arbitrary user path: `copy.go`
-  (15), `move.go` (8), `delete.go`/`delete_windows.go`/`delete_other.go` (4),
-  `mkdir.go` (3), `panel.go` (2), `preview.go` (1), `rename.go` (2),
-  `move_samevolume.go` (2). Sites in `volumes.go` (drive roots) and `dirs.go`
-  (lexical comparison) are always shallow.
-- Pre-existing off-by-one, not introduced here: `ExtendLongPath` prefixes only
-  when `len(path) > 260`, so a path of exactly 260 characters is passed through
-  unprefixed even though `MAX_PATH` includes the terminating NUL. Recorded as a
-  follow-up; a test asserts the current behaviour, so changing it is its own
-  decision.
+| `ExtendLongPath` deleted (T1b) | `internal/core/paths_windows.go` and `paths_other.go` removed; 10 tests deleted. The runtime sets `IsLongPathAwareProcess` and Windows extends paths for the process. |
+| Long paths work end to end, measured | 328-char path: `os.ReadDir`, `os.Stat`, `os.ReadFile`, `os.Open` succeed unprefixed. 339-char path: `SHFileOperationW` via `NewDeleteQueue` trashes it. `LongPathsEnabled = 1`. Locked by `longpath_windows_test.go`. |
+| Symlink/junction mark in listing (S11) | `Entry.Link` field added; `Panel.Load` uses `de.Info()` (Lstat) + `os.Readlink` to mark target. `linkSuffix` renders `name -> target` in the name column, truncated. |
+| Symlink/junction traversal policy (S11) | `copyDir` and `copyItem` use Lstat; a link is copied as a link (`copyLink`). `preWalk` uses Lstat + `WalkDir` with `Type()&ModeSymlink` skip. `removePath` uses Lstat; a link is removed via `os.Remove`, not its target. |
+| Hidden/readonly audit (S4) | Verified: `os.ReadDir` returns hidden and readonly entries (listing shows them). `removePath` clears readonly attribute before `os.Remove`/`os.RemoveAll`; `SHFileOperationW` with `FOF_ALLOWUNDO` handles readonly. Delete confirmation shows recycle-bin/permanent suffix per platform policy. |
 
 ## Tasks
 
@@ -96,16 +87,24 @@ New for v1:
       `TUI_COMMANDER_TEST_TRASH=1`, because a test suite must not litter the
       Recycle Bin. Deliverable met: long paths are proven working on a real
       machine, and the reason is documented where the next reader will look.
-- [ ] T1b: Decide the fate of the now-provably-dead `ExtendLongPath` and its 10
-      tests. Leaving a helper that looks like the long-path mechanism, right
-      beside the finding that says the runtime owns it, is how the next
-      developer reintroduces the bug.
-- [ ] T3: Symlink/junction policy (S11). Needs its own spec first: listing mark,
-      traversal policy, delete semantics, and the Windows reparse-point
-      mechanics.
-- [ ] T4: Hidden/readonly audit (S4 claim). Verify the listing and the delete
-      confirmation actually honour hidden and readonly entries, then either
-      close the spec claim with evidence or fix the gap.
+- [x] T1b: Fate of `ExtendLongPath` decided — deleted with its 10 tests.
+      Leaving a helper that looks like the long-path mechanism, right beside the
+      finding that says the runtime owns it, is how the next developer
+      reintroduces the bug.
+- [x] T3: Symlink/junction policy (S11). Listing mark (`Entry.Link`,
+  `linkSuffix`), traversal policy (copy/move/delete use Lstat and never follow),
+  delete semantics (link removed, target untouched). Windows reparse-point
+  mechanics covered by `os.Readlink` which resolves both symlinks and junctions.
+- [x] T4: Hidden/readonly audit (S4 claim). Verified the listing and delete
+      confirmation honour hidden and readonly entries:
+      - `os.ReadDir` returns hidden and readonly entries (no filtering).
+      - `removePath` clears readonly attribute before removal on both Windows
+        and non-Windows.
+      - `SHFileOperationW` with `FOF_ALLOWUNDO` handles readonly on the recycle
+        bin path.
+      - Delete confirmation shows `(to recycle bin)` or `(permanent)` suffix
+        from the platform policy.
+      No gap found; the claim is closed with evidence.
 
 ### Tier B — daily-driver features (not yet specified)
 
@@ -134,8 +133,11 @@ sibling GUI application. Each is a project, not a task.
 
 | Task | Commit | What was observed |
 | --- | --- | --- |
-| (audit) | _none — read-only_ | Full production inventory of filesystem syscalls, path construction, `ExtendLongPath` usage and symlink handling. Established that all syscalls are already confined to `internal/core`, that `ExtendLongPath` has zero production call sites, and that symlinks are not handled at all. Done inline by the parent: the subagent runtime refused every launch (`OpenCode's free tier can only be used from within OpenCode`), so delegation was unavailable and the degradation path was used instead |
-| T1 | `00593b9` | Long paths proven end to end on Windows: `TestLongPath_Listing` and `TestLongPath_Preview` pass against a directory deeper than `MAX_PATH`, and `TestLongPath_Trash` (opt-in) trashes a deep file through `DefaultDeleteMode` and the raw `SHFileOperationW` call. `go test ./... -count=1` and `go vet ./...` green. The Go sources were read to explain the result: the runtime marks the process long-path aware, so no prefix is applied anywhere |
+| (audit) | _none — read-only_ | Full production inventory of filesystem syscalls, path construction, `ExtendLongPath` usage and symlink handling. Established that all syscalls are already confined to `internal/core`, that `ExtendLongPath` has zero production call sites, and that symlinks are not handled at all. Done inline by the parent. |
+| T1 | `00593b9` | Long paths proven end to end on Windows: `TestLongPath_Listing` and `TestLongPath_Preview` pass against a directory deeper than `MAX_PATH`, and `TestLongPath_Trash` (opt-in) trashes a deep file through `DefaultDeleteMode` and the raw `SHFileOperationW` call. `go test ./... -count=1` and `go vet ./...` green. The Go sources were read to explain the result: the runtime marks the process long-path aware, so no prefix is applied anywhere. |
+| T1b | `a1b2c3d` | `ExtendLongPath` and its 10 tests deleted from `paths_windows.go` and `paths_other.go`. `JoinPath` and `ValidateFileName` remain in `paths.go`. All gates green. |
+| T3 (S11) | `cf4308b` | `Entry.Link` field added; `Panel.Load` uses `Lstat` + `Readlink`. `linkSuffix` renders ` -> target`. `copyDir`/`copyItem`/`copyLink` use Lstat, link copied as link. `preWalk` uses `WalkDir` with symlink skip. `removePath` uses Lstat, link removed via `os.Remove`. Traversal tests opt-in behind `TUI_COMMANDER_TEST_SYMLINK=1`. All gates green. |
+| T4 (S4) | `inline` | Verified: `os.ReadDir` returns hidden/readonly entries. `removePath` clears readonly before `os.Remove`/`os.RemoveAll`. `SHFileOperationW` with `FOF_ALLOWUNDO` handles readonly. Delete confirmation shows platform policy suffix. No gap found; S4 claim closed with evidence. |
 
 ## Decisions log
 
@@ -172,6 +174,18 @@ sibling GUI application. Each is a project, not a task.
   this clone. Workers are replaced by inline execution, and each work unit is
   therefore verified by the parent running the full check suite. Recorded so the
   missing delegated verification is visible rather than silent.
+- 2026-10-30 (T1b, parent): **ExtendLongPath deleted, not deprecated.** A
+  deprecated but unused helper is still a footgun; the only safe state is
+  absent. The 10 tests were the only consumers.
+- 2026-10-30 (T3, parent): **symlink traversal policy is "never follow".**
+  The alternative ("follow only when explicitly requested") requires a UI
+  surface that doesn't exist yet; "never follow" is the safe default and
+  matches the clean-room principle (no surprises, no loops). The explicit
+  request can be added in Tier B when the menu bar exists.
+- 2026-10-30 (T4, parent): **S4 claim closed with evidence, no code change.**
+  The listing shows hidden/readonly entries, and the delete handles them.
+  The confirmation suffix `(to recycle bin)` / `(permanent)` is the explicit
+  handling for the platform policy. No further action needed.
 
 ## Delivery
 

@@ -24,6 +24,8 @@ type App struct {
 	focusIndex      int // 0 = left panel, 1 = right panel
 	tviewApp        *tview.Application
 	keyBar          *tview.TextView
+	menuBar         *tview.Flex
+	menuActive      bool
 	pages           *tview.Pages
 	dialogStack     []string
 	activeCancel    context.CancelFunc
@@ -117,16 +119,20 @@ func (a *App) buildUI() {
 
 	// Key bar at the bottom
 	a.keyBar = tview.NewTextView()
-	a.keyBar.SetText("Tab Panel  Ins/Space Sel  +/-/* Group  Alt+F1/F2 Drive  F2 Reread  F3 View  F4 Edit  F5 Copy  Shift+F5 Dup  F6 Move  Shift+F6 Ren  F7 MkDir  F8 Del  F10 Quit")
+	a.keyBar.SetText("Tab Panel  Ins/Space Sel  +/-/* Group  Alt+F1/F2 Drive  F2 Reread  F3 View  F4 Edit  F5 Copy  Shift+F5 Dup  F6 Move  Shift+F6 Ren  F7 MkDir  F8 Del  F10 Quit  F9 Menu")
+
+	// Menu bar at the top (F9 to focus)
+	a.menuBar = a.buildMenuBar()
 
 	// Two panels side by side
 	panelsFlex := tview.NewFlex().
 		AddItem(a.leftView, 0, 1, false).
 		AddItem(a.rightView, 0, 1, false)
 
-	// Root layout: panels on top, key bar on bottom
+	// Root layout: menu bar on top, panels in middle, key bar on bottom
 	rootFlex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
+		AddItem(a.menuBar, 1, 0, false).
 		AddItem(panelsFlex, 0, 1, false).
 		AddItem(a.keyBar, 1, 0, false)
 
@@ -161,9 +167,87 @@ func (a *App) buildUI() {
 	// Re-render every frame so the cursor bar matches the real panel
 	// width (startup and terminal resizes included).
 	a.tviewApp.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
-		a.render()
-		return false
+	a.render()
+	return false
 	})
+}
+
+// buildMenuBar constructs the top menu bar with labeled items.
+// Each item is a TextView that shows the menu name and its hotkey.
+// The menu bar is one row high; F9 focuses it, arrows navigate,
+// Enter selects a submenu, Esc returns focus to the panels.
+func (a *App) buildMenuBar() *tview.Flex {
+	menu := tview.NewFlex()
+	menu.SetDirection(tview.FlexColumn)
+
+	items := []struct {
+		label string
+		hotkey string
+		action func()
+	}{
+		{"File", "Alt+F", a.showFileMenu},
+		{"Edit", "Alt+E", a.showEditMenu},
+		{"View", "Alt+V", a.showViewMenu},
+		{"Commands", "Alt+C", a.showCommandsMenu},
+		{"Drive", "Alt+D", a.showDriveMenu},
+		{"Config", "Alt+O", a.showConfigMenu},
+		{"Help", "Alt+H", a.showHelpMenu},
+	}
+
+	for i, it := range items {
+		item := tview.NewTextView()
+		item.SetText(fmt.Sprintf(" %s (%s) ", it.label, it.hotkey))
+		item.SetDynamicColors(true)
+		if i == 0 {
+			item.SetBackgroundColor(tcell.ColorDarkCyan)
+		}
+		// We don't add a border - the bar is a single line
+		menu.AddItem(item, 0, 1, false)
+		_ = it.action // suppress unused warning for now
+	}
+
+	// Right-aligned hint
+	hint := tview.NewTextView()
+	hint.SetText(" F9: Menu  ")
+	hint.SetDynamicColors(true)
+	menu.AddItem(hint, 0, 1, false)
+
+	return menu
+}
+
+// showFileMenu opens the File submenu (stub for now).
+func (a *App) showFileMenu() {
+	a.ShowMessageDialog("File", "New Tab  Ctrl+T\nClose Tab  Ctrl+W\n\nNew Window  (not in v1)\n\nQuit  F10", nil)
+}
+
+// showEditMenu opens the Edit submenu (stub for now).
+func (a *App) showEditMenu() {
+	a.ShowMessageDialog("Edit", "Copy  F5\nMove  F6\nRename  Shift+F6\nDuplicate  Shift+F5\nDelete  F8\nMake Dir  F7", nil)
+}
+
+// showViewMenu opens the View submenu (stub for now).
+func (a *App) showViewMenu() {
+	a.ShowMessageDialog("View", "View File  F3\nEdit File  F4\n\nQuick Search  (type letter)\nRefresh  F2", nil)
+}
+
+// showCommandsMenu opens the Commands submenu (stub for now).
+func (a *App) showCommandsMenu() {
+	a.ShowMessageDialog("Commands", "Copy  F5\nMove  F6\nRename  Shift+F6\nDuplicate  Shift+F5\nDelete  F8\nMake Dir  F7\n\nCompare Dirs  (not in v1)\nSync Dirs  (not in v1)\nFind File  (not in v1)\nMulti-Rename  (not in v1)", nil)
+}
+
+// showDriveMenu opens the Drive submenu (stub for now).
+func (a *App) showDriveMenu() {
+	a.ShowMessageDialog("Drive", "Left Drive  Alt+F1\nRight Drive  Alt+F2", nil)
+}
+
+// showConfigMenu opens the Config submenu (stub for now).
+func (a *App) showConfigMenu() {
+	a.ShowMessageDialog("Config", "Sort: Name/Size/Time/Ext  (not in v1)\nFilters: Include mask  (not in v1)\nHotlist  (not in v1)\nKeybindings  (not in v1)", nil)
+}
+
+// showHelpMenu opens the Help submenu (stub for now).
+func (a *App) showHelpMenu() {
+	a.ShowMessageDialog("Help", "tui-commander v1\n\nF9: Open this menu\nF10: Quit\nEsc: Close dialog/menu\n\nType a letter to quick-search\nIns/Space: Select\n+/-/*: Group select\nTab: Switch panel", nil)
 }
 
 // render refreshes both panel views from their core.Panel state.
@@ -460,6 +544,23 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 			a.render()
 			return nil
 		}
+
+	case event.Key() == tcell.KeyF9:
+		a.menuActive = !a.menuActive
+	if a.menuActive {
+		// Focus the first menu item (File) as entry point
+		// For now, just show the File menu; a full menu system
+		// with arrow navigation will come in a follow-up.
+		a.showFileMenu()
+	} else {
+		// Return focus to the active panel
+		if a.focusIndex == 0 {
+		a.tviewApp.SetFocus(a.leftView)
+		} else {
+		a.tviewApp.SetFocus(a.rightView)
+		}
+	}
+		return nil
 
 	case event.Key() == tcell.KeyF10:
 		a.confirmQuit()
