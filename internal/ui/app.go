@@ -225,9 +225,49 @@ func (a *App) showEditMenu() {
 	a.ShowMessageDialog("Edit", "Copy  F5\nMove  F6\nRename  Shift+F6\nDuplicate  Shift+F5\nDelete  F8\nMake Dir  F7", nil)
 }
 
-// showViewMenu opens the View submenu (stub for now).
+// showViewMenu opens the View submenu with sort and view options.
 func (a *App) showViewMenu() {
-	a.ShowMessageDialog("View", "View File  F3\nEdit File  F4\n\nQuick Search  (type letter)\nRefresh  F2", nil)
+	panel := a.focusedPanel()
+	cfg := panel.SortConfig()
+	items := []tview.FormItem{
+		tview.NewTextView().
+			SetText(fmt.Sprintf("Current sort: %s, dirs first: %v, reverse: %v",
+			cfg.By.String(), cfg.DirsFirst, cfg.Reverse)).
+			SetDynamicColors(true),
+	}
+	form := tview.NewForm()
+	for _, item := range items {
+		form.AddFormItem(item)
+	}
+	form.AddButton("Sort by Name", func() { a.setSortBy(core.SortByName) })
+	form.AddButton("Sort by Size", func() { a.setSortBy(core.SortBySize) })
+	form.AddButton("Sort by Time", func() { a.setSortBy(core.SortByTime) })
+	form.AddButton("Sort by Ext", func() { a.setSortBy(core.SortByExt) })
+	form.AddButton("Toggle Dirs First", func() { a.toggleDirsFirst() })
+	form.AddButton("Toggle Reverse", func() { a.toggleReverse() })
+	form.AddButton("Close", func() { a.closeTopDialog() })
+	form.SetBorder(true).SetTitle(" View ").SetTitleAlign(tview.AlignCenter)
+	a.pages.AddPage("viewmenu", a.wrapDialog(form, 12), true, true)
+	a.dialogStack = append(a.dialogStack, "viewmenu")
+	a.tviewApp.SetFocus(form)
+}
+
+// setSortBy changes the sort key for the focused panel.
+func (a *App) setSortBy(by core.SortBy) {
+	a.focusedPanel().SetSortBy(by)
+	a.render()
+}
+
+// toggleDirsFirst flips the directories-first setting for the focused panel.
+func (a *App) toggleDirsFirst() {
+	a.focusedPanel().ToggleDirsFirst()
+	a.render()
+}
+
+// toggleReverse flips the reverse-order setting for the focused panel.
+func (a *App) toggleReverse() {
+	a.focusedPanel().ToggleReverse()
+	a.render()
 }
 
 // showCommandsMenu opens the Commands submenu (stub for now).

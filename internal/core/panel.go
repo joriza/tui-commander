@@ -32,6 +32,44 @@ type Entry struct {
 // Panel
 // ---------------------------------------------------------------------------
 
+// SortBy selects the primary sort key for a panel listing.
+type SortBy int
+
+const (
+	SortByName SortBy = iota
+	SortBySize
+	SortByTime
+	SortByExt
+)
+
+// String returns the human-readable name of the sort key.
+func (s SortBy) String() string {
+	switch s {
+	case SortByName:
+		return "Name"
+	case SortBySize:
+		return "Size"
+	case SortByTime:
+		return "Time"
+	case SortByExt:
+		return "Ext"
+	default:
+		return "Unknown"
+	}
+}
+
+// SortConfig holds the per-panel sort configuration.
+type SortConfig struct {
+	By      SortBy
+	DirsFirst bool
+	Reverse   bool
+}
+
+// DefaultSortConfig returns the v0 default: name ascending, dirs first.
+func DefaultSortConfig() SortConfig {
+	return SortConfig{By: SortByName, DirsFirst: true, Reverse: false}
+}
+
 // Panel holds the state for a single file browser panel: current path,
 // directory entries, cursor position, and sort configuration.
 // Entries are sorted with directories first, then files, both groups
@@ -52,14 +90,18 @@ type Panel struct {
 	// matching entries in the same order. visible must never alias the
 	// entries backing array.
 	visible []Entry
+
+	// sortConfig holds the per-panel sort configuration.
+	sortConfig SortConfig
 }
 
 // NewPanel creates a Panel with zero state (no path loaded).
 func NewPanel() *Panel {
 	return &Panel{
-		selected: make(map[string]bool),
-		visible:  nil,
-		filter:   "",
+		selected:    make(map[string]bool),
+		visible:     nil,
+		filter:      "",
+		sortConfig:  DefaultSortConfig(),
 	}
 }
 
@@ -118,19 +160,53 @@ func (p *Panel) Load(path string) error {
 	return nil
 }
 
-// sortEntries sorts directories first, then files, both groups
-// case-insensitively by name ascending.
+// sortEntries sorts the panel entries according to the panel's
+// sortConfig. When DirsFirst is true, directories are grouped before
+// files; the primary key is By (Name, Size, Time, Ext); Reverse
+// flips the order.
 func (p *Panel) sortEntries() {
 	sort.SliceStable(p.entries, func(i, j int) bool {
 		a, b := p.entries[i], p.entries[j]
 
-		// Directories come before files
-		if a.IsDir != b.IsDir {
-			return a.IsDir
+		// Directories-first grouping
+		if p.sortConfig.DirsFirst && a.IsDir != b.IsDir {
+			if a.IsDir {
+				return !p.sortConfig.Reverse
+			}
+			return p.sortConfig.Reverse
 		}
 
-		// Same type: case-insensitive ascending by name
-		return lessIgnoreCase(a.Name, b.Name)
+		// Primary sort key
+		var less bool
+		switch p.sortConfig.By {
+		case SortByName:
+			less = lessIgnoreCase(a.Name, b.Name)
+		case SortBySize:
+			if a.Size != b.Size {
+				less = a.Size < b.Size
+			} else {
+				less = lessIgnoreCase(a.Name, b.Name)
+			}
+		case SortByTime:
+			if !a.ModTime.Equal(b.ModTime) {
+				less = a.ModTime.Before(b.ModTime)
+			} else {
+				less = lessIgnoreCase(a.Name, b.Name)
+			}
+		case SortByExt:
+			extA := filepath.Ext(a.Name)
+			extB := filepath.Ext(b.Name)
+			if extA != extB {
+				less = extA < extB
+			} else {
+				less = lessIgnoreCase(a.Name, b.Name)
+			}
+		}
+
+		if p.sortConfig.Reverse {
+			return !less
+		}
+		return less
 	})
 }
 
@@ -230,6 +306,41 @@ func (p *Panel) Descend(name string) error {
 // CurrentPath returns the panel's current directory path.
 func (p *Panel) CurrentPath() string {
 	return p.currentPath
+}
+
+// SortConfig returns a copy of the panel's sort configuration.
+func (p *Panel) SortConfig() SortConfig {
+	return p.sortConfig
+}
+
+// SetSortBy changes the primary sort key and re-sorts the panel.
+func (p *Panel) SetSortBy(by SortBy) {
+	p.sortConfig.By = by
+	p.sortEntries()
+}
+
+// SetDirsFirst toggles the directories-first setting and re-sorts.
+func (p *Panel) SetDirsFirst(dirsFirst bool) {
+	p.sortConfig.DirsFirst = dirsFirst
+	p.sortEntries()
+}
+
+// SetReverse toggles the reverse-order setting and re-sorts.
+func (p *Panel) SetReverse(reverse bool) {
+	p.sortConfig.Reverse = reverse
+	p.sortEntries()
+}
+
+// ToggleDirsFirst flips the directories-first setting and re-sorts.
+func (p *Panel) ToggleDirsFirst() {
+	p.sortConfig.DirsFirst = !p.sortConfig.DirsFirst
+	p.sortEntries()
+}
+
+// ToggleReverse flips the reverse-order setting and re-sorts.
+func (p *Panel) ToggleReverse() {
+	p.sortConfig.Reverse = !p.sortConfig.Reverse
+	p.sortEntries()
 }
 
 // ---------------------------------------------------------------------------
