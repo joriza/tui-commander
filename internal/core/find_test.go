@@ -1,9 +1,9 @@
 package core
 
 import (
-	"strings"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -14,10 +14,10 @@ func TestFindFiles_Basic(t *testing.T) {
 
 	// Create test structure
 	files := map[string]string{
-		"file1.txt":       "content1",
-		"file2.log":       "content2",
-		"script.go":       "package main",
-		"README.md":       "# Readme",
+		"file1.txt":         "content1",
+		"file2.log":         "content2",
+		"script.go":         "package main",
+		"README.md":         "# Readme",
 		"subdir/nested.txt": "nested",
 	}
 	for path, content := range files {

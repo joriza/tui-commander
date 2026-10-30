@@ -12,50 +12,50 @@ type FindMode int
 
 const (
 	FindFilesOnly FindMode = iota // Files only
-	FindDirs                    // Directories only
-	FindBoth                    // Both files and directories
+	FindDirs                      // Directories only
+	FindBoth                      // Both files and directories
 )
 
 // FindOptions configures the search.
 type FindOptions struct {
-	Mode          FindMode
-	NamePattern   string            // filepath.Match pattern (e.g., "*.go")
-	MinSize       int64             // Minimum size in bytes (0 = no limit)
-	MaxSize       int64             // Maximum size in bytes (0 = no limit)
-	ModTimeAfter  *time.Time        // Modified after this time (nil = no limit)
-	ModTimeBefore *time.Time        // Modified before this time (nil = no limit)
-	Content       string            // Content substring to search (empty = no content search)
-	CaseSensitive bool              // For content search
-	FollowSymlinks  bool            // Always false per project policy
+	Mode           FindMode
+	NamePattern    string     // filepath.Match pattern (e.g., "*.go")
+	MinSize        int64      // Minimum size in bytes (0 = no limit)
+	MaxSize        int64      // Maximum size in bytes (0 = no limit)
+	ModTimeAfter   *time.Time // Modified after this time (nil = no limit)
+	ModTimeBefore  *time.Time // Modified before this time (nil = no limit)
+	Content        string     // Content substring to search (empty = no content search)
+	CaseSensitive  bool       // For content search
+	FollowSymlinks bool       // Always false per project policy
 }
 
 // FindResult holds a single match.
 type FindResult struct {
-	Path        string    // Absolute path
-	RelPath     string    // Relative to search root
-	Name        string
-	IsDir       bool
-	Size        int64
-	ModTime     time.Time
-	IsLink      bool
-	LinkTarget  string
-	ContentMatch bool     // True if content search matched
+	Path         string // Absolute path
+	RelPath      string // Relative to search root
+	Name         string
+	IsDir        bool
+	Size         int64
+	ModTime      time.Time
+	IsLink       bool
+	LinkTarget   string
+	ContentMatch bool // True if content search matched
 }
 
 // FindResults holds all matches from a search.
 type FindResults struct {
-	Root      string
-	Options   FindOptions
-	Matches   []FindResult
-	Total     int
-	Scanned   int
-	Errors    []error
+	Root    string
+	Options FindOptions
+	Matches []FindResult
+	Total   int
+	Scanned int
+	Errors  []error
 }
 
 // DefaultFindOptions returns sensible defaults.
 func DefaultFindOptions() FindOptions {
 	return FindOptions{
-		Mode:          FindBoth,
+		Mode:           FindBoth,
 		FollowSymlinks: false,
 	}
 }
@@ -156,15 +156,15 @@ func FindFiles(root string, opts FindOptions) (*FindResults, error) {
 		relPath, _ := filepath.Rel(root, path)
 
 		results.Matches = append(results.Matches, FindResult{
-			Path:          path,
-			RelPath:       relPath,
-			Name:          info.Name(),
-			IsDir:         info.IsDir(),
-			Size:          info.Size(),
-			ModTime:       info.ModTime(),
-			IsLink:        isLink,
-			LinkTarget:    linkTarget,
-			ContentMatch:  contentMatch,
+			Path:         path,
+			RelPath:      relPath,
+			Name:         info.Name(),
+			IsDir:        info.IsDir(),
+			Size:         info.Size(),
+			ModTime:      info.ModTime(),
+			IsLink:       isLink,
+			LinkTarget:   linkTarget,
+			ContentMatch: contentMatch,
 		})
 
 		return nil

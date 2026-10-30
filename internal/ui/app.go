@@ -348,15 +348,16 @@ func (a *App) clearHotlist() {
 	})
 }
 
-// showCommandsMenu opens the Commands submenu with sync and find.
+// showCommandsMenu opens the Commands submenu with sync, find, and multi-rename.
 func (a *App) showCommandsMenu() {
 	a.closeTopDialog()
 	form := tview.NewForm()
 	form.AddButton("Compare/Sync (Shift+F2)", func() { a.syncDialog() })
 	form.AddButton("Find Files...", func() { a.findDialog() })
+	form.AddButton("Multi-Rename (Ctrl+M)", func() { a.multirenameDialog() })
 	form.AddButton("Cancel", func() { a.closeTopDialog() })
 	form.SetBorder(true).SetTitle(" Commands ").SetTitleAlign(tview.AlignCenter)
-	a.pages.AddPage("commandsmenu", a.wrapDialog(form, 8), true, true)
+	a.pages.AddPage("commandsmenu", a.wrapDialog(form, 10), true, true)
 	a.dialogStack = append(a.dialogStack, "commandsmenu")
 	a.tviewApp.SetFocus(form)
 }
@@ -710,6 +711,11 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 				a.tviewApp.SetFocus(a.rightView)
 			}
 		}
+		return nil
+
+	case event.Key() == tcell.KeyCtrlM:
+		// Ctrl+M: Multi-Rename (Total Commander style)
+		a.multirenameDialog()
 		return nil
 
 	case event.Key() == tcell.KeyF10:
