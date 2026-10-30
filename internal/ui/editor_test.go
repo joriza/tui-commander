@@ -148,6 +148,66 @@ func TestResolveEditor(t *testing.T) {
 	})
 }
 
+// TestSplitArgsPreservesRawBytes guards the regression where splitArgs re-encoded
+// every byte >= 0x80 as a rune, doubling it into mojibake and corrupting the
+// EDITOR command handed to exec.Command. It is a separate table so the byte
+// preservation contract cannot be lost when the main table is edited.
+func TestSplitArgsPreservesRawBytes(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{
+			name:  "quoted arg with U+00F1",
+			input: `--open "Informe ñ.txt"`,
+			want:  []string{"--open", "Informe ñ.txt"},
+		},
+		{
+			name:  "unquoted program path with U+00E9",
+			input: `C:\Users\José\edit.exe file.txt`,
+			want:  []string{"C:\\Users\\José\\edit.exe", "file.txt"},
+		},
+		{
+			name:  "4-byte UTF-8 sequence survives",
+			input: `prog "€ file.txt"`,
+			want:  []string{"prog", "€ file.txt"},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got := splitArgs(tt.input)
+			if len(got) != len(tt.want) {
+				t.Fatalf("len(got)=%d want %d: got=%v", len(got), len(tt.want), got)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("got[%d]=%x (%q) want %x (%q)", i, got[i], got[i], tt.want[i], tt.want[i])
+				}
+			}
+			// The bytes must be identical, not just the decoded runes: compare the
+			// raw byte slices so a re-encoding cannot slip through as equal text.
+			for i := range got {
+				if !bytesEqual(got[i], tt.want[i]) {
+					t.Fatalf("got[%d] bytes % x differ from want % x", i, []byte(got[i]), []byte(tt.want[i]))
+				}
+			}
+		})
+	}
+}
+
+func bytesEqual(a, b string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := 0; i < len(a); i++ {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestSplitArgs(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -193,6 +253,21 @@ func TestSplitArgs(t *testing.T) {
 			name:  "only whitespace",
 			input: "   \t  ",
 			want:  []string{},
+		},
+		{
+			name:  "non-ASCII bytes preserved byte-for-byte in a quoted arg",
+			input: `--open "Informe ñ.txt"`,
+			want:  []string{"--open", "Informe ñ.txt"},
+		},
+		{
+			name:  "non-ASCII bytes preserved byte-for-byte in an unquoted program",
+			input: `C:\Users\José\edit.exe file.txt`,
+			want:  []string{"C:\\Users\\José\\edit.exe", "file.txt"},
+		},
+		{
+			name:  "empty quoted string embedded after content keeps order",
+			input: `--flag="" C:\x.txt`,
+			want:  []string{"--flag=", "", "C:\\x.txt"},
 		},
 	}
 

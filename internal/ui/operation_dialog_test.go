@@ -41,7 +41,11 @@ func TestEscOnQuitDialogDoesNotCancelOperation(t *testing.T) {
 	app, _ := newQuitTestApp()
 
 	closeProgress, progTitle := openProgressDialog(app)
-	bindOperationCancel(app, progTitle)
+	// Bind the cancel BEFORE Esc and keep the SAME instance: the previous
+	// version bound a second, freshly-allocated flag after Esc and asserted on
+		// it, which is false by construction and made the test pass regardless of
+	// whether Esc had cancelled the operation.
+	f := bindOperationCancel(app, progTitle)
 	app.confirmQuit() // stacks the quit dialog on top of the progress dialog
 
 	app.handleKey(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
@@ -51,8 +55,9 @@ func TestEscOnQuitDialogDoesNotCancelOperation(t *testing.T) {
 		t.Fatalf("dialog stack = %v, want only the progress dialog left after Esc on the quit prompt", app.dialogStack)
 	}
 	// The operation must NOT have been cancelled: Esc dismissed the quit
-	// prompt, it did not abort the copy/move/delete.
-	if f := bindOperationCancel(app, progTitle); f.called {
+	// prompt, it did not abort the copy/move/delete. f is the flag bound
+	// before Esc, so its state is the one Esc would have acted on.
+	if f.called {
 		t.Fatal("Esc on the quit dialog cancelled the in-flight operation; the user only asked to back out of quitting")
 	}
 	_ = closeProgress

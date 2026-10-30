@@ -59,21 +59,35 @@ func parseEditorCommand(cmd string) (string, []string, bool) {
 // --open "My Notes.txt" are kept as a single token.
 // Empty quoted strings ("" or ”) produce an empty token.
 // Unclosed quotes at the end are treated as literal characters.
+//
+// It operates on raw BYTES and preserves them byte-for-byte: an EDITOR
+// command may contain non-ASCII bytes (a path like C:\Users\José\edit.exe or
+// an argument like --open "Informe ñ.txt"), and re-encoding each byte as a
+// rune would double-encode every byte >= 0x80 into mojibake. Quote matching
+// is byte-level for the ASCII quote characters, so byte iteration is correct
+// and sufficient — no rune-level iteration is needed.
 func splitArgs(s string) []string {
 	var fields []string
 	var cur strings.Builder
 	inSpace := true
-	inQuote := rune(0)   // 0 = not in quote, '"' or '\'' = inside quoted string
-	quotedEmpty := false // true when we're in a quote and haven't seen content yet
+	inQuote := byte(0)    // 0 = not in quote, '"' or '\'' = inside quoted string
+	quotedEmpty := false  // true when we're in a quote and haven't seen content yet
 	for i := 0; i < len(s); i++ {
-		c := rune(s[i])
+		c := s[i]
 		// Handle quote boundaries
 		if c == '"' || c == '\'' {
 			if inQuote == c {
-				// Closing quote of the same type
+				// Closing quote of the same type.
 				inQuote = 0
-				// If we were in a quoted section with no content, emit empty token
 				if quotedEmpty {
+					// The quote enclosed nothing. Flush any pending token first so an
+					// empty quoted string embedded after content (e.g. --flag="")
+					// does not split one argument into two out of source order.
+					if cur.Len() > 0 {
+						fields = append(fields, cur.String())
+						cur.Reset()
+						inSpace = true
+					}
 					fields = append(fields, "")
 				}
 				quotedEmpty = false
@@ -96,15 +110,11 @@ func splitArgs(s string) []string {
 			continue
 		}
 		inSpace = false
-		cur.WriteRune(c)
+		cur.WriteByte(c)
 		quotedEmpty = false // we saw content inside the quote
 	}
-	// Handle unclosed quote at end: treat the opening quote as literal
+	// Handle unclosed quote at end: treat the opening quote as literal.
 	if inQuote != 0 {
-		// Rewind: the opening quote was consumed but not emitted.
-		// The content after it is in cur. We need to prepend the quote char.
-		// Actually, simpler: the whole thing is one token including the quote.
-		// We'll emit what we have with the quote char prepended.
 		if cur.Len() > 0 {
 			fields = append(fields, string(inQuote)+cur.String())
 		} else {
