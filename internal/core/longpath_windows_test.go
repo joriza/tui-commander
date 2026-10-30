@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -37,6 +38,46 @@ import (
 // assert the behaviour on a machine where long paths are enabled, which is what
 // the shipped product needs.
 
+// longPathsEnabledReal reads the machine-wide LongPathsEnabled registry value
+// (HKLM\SYSTEM\CurrentControlSet\Control\FileSystem). It returns false when
+// the value is absent or 0, which is the stock Windows default and the only
+// reason a path >260 chars is rejected by the filesystem.
+//
+// It is the discriminator the long-path tests use to decide between skip and
+// fail: a path that is already known to exceed MAX_PATH cannot be the cause
+// of an MkdirAll failure, so anything other than this environment flag is a
+// real setup regression.
+func longPathsEnabledReal() bool {
+	subkey := syscall.StringToUTF16(`SYSTEM\CurrentControlSet\Control\FileSystem`)
+	var key syscall.Handle
+	if err := syscall.RegOpenKeyEx(syscall.HKEY_LOCAL_MACHINE, &subkey[0], 0, syscall.KEY_READ, &key); err != nil {
+		return false
+	}
+	defer syscall.RegCloseKey(key)
+
+	name := syscall.StringToUTF16(`LongPathsEnabled`)
+	var val [4]byte
+	var n uint32 = uint32(len(val))
+	if err := syscall.RegQueryValueEx(key, &name[0], nil, nil, &val[0], &n); err != nil {
+		return false
+	}
+	return val[0] == 1
+}
+
+// longPathsEnabled is the cached result of reading the machine. It is a
+// package variable rather than a const so the test file can override it and
+// prove the skip-vs-fail branch without touching the registry.
+var longPathsEnabled = longPathsEnabledReal()
+
+// skipLongPathFailure decides whether an MkdirAll error on a path already
+// known to exceed MAX_PATH should skip the test (the machine does not
+// support long paths) or fail it (the machine does support them and the
+// error is something else). The path length is NOT the discriminator — it is
+// guaranteed by the Fatalf above — the environment is.
+func skipLongPathFailure(enabled bool) bool {
+	return !enabled
+}
+
 // deepTree creates a directory tree whose path exceeds MAX_PATH and returns the
 // directory and the path of a text file inside it. The tree is built with
 // ordinary os calls on purpose: if Go needed a hand-rolled prefix, the setup
@@ -53,7 +94,21 @@ func deepTree(t *testing.T) (dir, file string) {
 	}
 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("create a %d-character directory tree: %v", len(dir), err)
+		// On stock Windows the machine-wide LongPathsEnabled value defaults to 0.
+		// When it is disabled the filesystem rejects paths >260 chars and the
+		// test cannot run. Skip instead of failing hard so the project's green gate
+		// remains usable on a vanilla machine.
+		//
+		// The skip is NARROW: it fires only when the machine genuinely does not
+		// support long paths. A failure that is NOT that (access denied, read-only
+		// temp, antivirus lock, disk full) would otherwise be swallowed and
+		// reported as "ok (skipped)" forever, masking a real setup regression.
+		// The path length is already guaranteed by the Fatalf above, so the
+		// discriminator here is the environment, not the length.
+		if skipLongPathFailure(longPathsEnabled) {
+			t.Skipf("Long paths not supported on this machine (LongPathsEnabled=0; MkdirAll on %d-char path failed: %v); set LongPathsEnabled=1 in HKLM\\SYSTEM\\CurrentControlSet\\Control\\FileSystem and rerun on Windows", len(dir), err)
+		}
+		t.Fatalf("MkdirAll on a %d-char path failed on a machine that supports long paths: %v — this is a setup problem, not a long-path limitation", len(dir), err)
 	}
 
 	file = filepath.Join(dir, "victim.txt")
@@ -119,6 +174,27 @@ func TestLongPath_Preview(t *testing.T) {
 	}
 	if preview.Text != "deep contents" {
 		t.Errorf("preview text = %q, want %q", preview.Text, "deep contents")
+	}
+}
+
+// TestLongPathSkipDiscriminator proves the skip-vs-fail branch actually
+// discriminates the environment from a setup failure. A path already known to
+// exceed MAX_PATH cannot be the cause of an MkdirAll error, so on a machine
+// that supports long paths the failure must FAIL the suite (it is access
+// denied, a read-only temp, an antivirus lock or a disk full), and on a
+// machine that does not it must SKIP.
+func TestLongPathSkipDiscriminator(t *testing.T) {
+	orig := longPathsEnabled
+	defer func() { longPathsEnabled = orig }()
+
+	longPathsEnabled = true
+	if skipLongPathFailure(longPathsEnabled) {
+		t.Fatal("on a machine that supports long paths, a setup failure must NOT be skipped — it must fail the suite")
+	}
+
+	longPathsEnabled = false
+	if !skipLongPathFailure(longPathsEnabled) {
+		t.Fatal("on a machine that does not support long paths, a long-path rejection must be skipped, not failed")
 	}
 }
 

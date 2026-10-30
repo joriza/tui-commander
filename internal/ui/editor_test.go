@@ -147,3 +147,156 @@ func TestResolveEditor(t *testing.T) {
 		}
 	})
 }
+
+// TestSplitArgsPreservesRawBytes guards the regression where splitArgs re-encoded
+// every byte >= 0x80 as a rune, doubling it into mojibake and corrupting the
+// EDITOR command handed to exec.Command. It is a separate table so the byte
+// preservation contract cannot be lost when the main table is edited.
+//
+// It also guards the quote semantics: a quote is a boundary ONLY at the start
+// of a token. A quote that arrives mid-token is a literal byte, so an EDITOR
+// command containing an embedded quote (a path like C:\a\b"c.exe) is passed
+// through byte-for-byte instead of having the quote silently deleted.
+func TestSplitArgsPreservesRawBytes(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{
+			name:  "quoted arg with U+00F1",
+			input: `--open "Informe ñ.txt"`,
+			want:  []string{"--open", "Informe ñ.txt"},
+		},
+		{
+			name:  "unquoted program path with U+00E9",
+			input: `C:\Users\José\edit.exe file.txt`,
+			want:  []string{"C:\\Users\\José\\edit.exe", "file.txt"},
+		},
+		{
+			name:  "4-byte UTF-8 sequence survives",
+			input: `prog "€ file.txt"`,
+			want:  []string{"prog", "€ file.txt"},
+		},
+		{
+			name:  "quote mid-token is preserved, not deleted",
+			input: `foo"bar`,
+			want:  []string{"foo\"bar"},
+		},
+		{
+			name:  "embedded quote in a path is preserved byte-for-byte",
+			input: `C:\a\b"c.exe`,
+			want:  []string{"C:\\a\\b\"c.exe"},
+		},
+		{
+			name:  "double quote mid-token is preserved, not treated as empty token",
+			input: `--flag="" C:\x.txt`,
+			want:  []string{"--flag=\"\"", "C:\\x.txt"},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			got := splitArgs(tt.input)
+			if len(got) != len(tt.want) {
+				t.Fatalf("len(got)=%d want %d: got=%v", len(got), len(tt.want), got)
+			}
+			// Go string equality is byte equality, so `got[i] != tt.want[i]`
+			// already rejects a mojibake re-encoding (a re-encoded string differs
+			// byte-by-byte, not just as decoded runes). The %x format keeps the
+			// failure output in raw bytes so the corruption is visible.
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("got[%d]=%x (%q) want %x (%q)", i, got[i], got[i], tt.want[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestSplitArgs(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{
+			name:  "simple",
+			input: "foo bar baz",
+			want:  []string{"foo", "bar", "baz"},
+		},
+		{
+			name:  "double quotes",
+			input: `--open "My Notes.txt"`,
+			want:  []string{"--open", "My Notes.txt"},
+		},
+		{
+			name:  "single quotes",
+			input: `--open 'My Notes.txt'`,
+			want:  []string{"--open", "My Notes.txt"},
+		},
+		{
+			name:  "quote at token start opens a region, inner quote is literal",
+			input: `--arg "it's fine"`,
+			want:  []string{"--arg", "it's fine"},
+		},
+		{
+			name:  "quote mid-token is a literal byte, not a boundary",
+			input: `foo"bar`,
+			want:  []string{"foo\"bar"},
+		},
+		{
+			name:  "embedded quote in a path is preserved byte-for-byte",
+			input: `C:\a\b"c.exe`,
+			want:  []string{"C:\\a\\b\"c.exe"},
+		},
+		{
+			name:  "double quote mid-token is preserved, not treated as empty token",
+			input: `--flag="" C:\x.txt`,
+			want:  []string{"--flag=\"\"", "C:\\x.txt"},
+		},
+		{
+			name:  "quoted empty string",
+			input: `"" --flag`,
+			want:  []string{"", "--flag"},
+		},
+		{
+			name:  "unclosed quote treated as single token",
+			input: `"unclosed arg`,
+			want:  []string{`"unclosed arg`},
+		},
+		{
+			name:  "empty input",
+			input: "",
+			want:  []string{},
+		},
+		{
+			name:  "only whitespace",
+			input: "   \t  ",
+			want:  []string{},
+		},
+		{
+			name:  "non-ASCII bytes preserved byte-for-byte in a quoted arg",
+			input: `--open "Informe ñ.txt"`,
+			want:  []string{"--open", "Informe ñ.txt"},
+		},
+		{
+			name:  "non-ASCII bytes preserved byte-for-byte in an unquoted program",
+			input: `C:\Users\José\edit.exe file.txt`,
+			want:  []string{"C:\\Users\\José\\edit.exe", "file.txt"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := splitArgs(tt.input)
+			if len(got) != len(tt.want) {
+				t.Fatalf("len(got)=%d want %d: got=%v", len(got), len(tt.want), got)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("got[%d]=%q want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}

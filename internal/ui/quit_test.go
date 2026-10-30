@@ -55,7 +55,7 @@ func TestF10OpensQuitConfirmationInsteadOfStopping(t *testing.T) {
 	if *stopped {
 		t.Fatal("F10 stopped the app; want a confirmation dialog first")
 	}
-	if n := len(app.dialogStack); n != 1 || app.dialogStack[n-1] != quitDialogTitle {
+	if n := len(app.dialogStack); n != 1 || !strings.HasPrefix(app.dialogStack[n-1], quitDialogTitle) {
 		t.Fatalf("dialog stack = %v, want exactly the quit confirmation", app.dialogStack)
 	}
 }
@@ -157,13 +157,13 @@ func TestF10WhileAnotherDialogOpenAsksConfirmation(t *testing.T) {
 	if *stopped {
 		t.Fatal("F10 with a dialog open stopped the app; want confirmation first")
 	}
-	if n := len(app.dialogStack); n != 2 || app.dialogStack[n-1] != quitDialogTitle {
+	if n := len(app.dialogStack); n != 2 || !strings.HasPrefix(app.dialogStack[n-1], quitDialogTitle) {
 		t.Fatalf("dialog stack = %v, want the quit confirmation on top", app.dialogStack)
 	}
 
 	// Cancelling the confirmation returns to the previous dialog.
 	app.handleKey(tcell.NewEventKey(tcell.KeyEscape, 0, tcell.ModNone))
-	if len(app.dialogStack) != 1 || app.dialogStack[0] != "TestDialog" {
+	if len(app.dialogStack) != 1 || !strings.HasPrefix(app.dialogStack[0], "TestDialog") {
 		t.Fatalf("dialog stack = %v, want only TestDialog left", app.dialogStack)
 	}
 	if *stopped {

@@ -55,12 +55,57 @@ func parseEditorCommand(cmd string) (string, []string, bool) {
 }
 
 // splitArgs splits a string by whitespace, collapsing multiple spaces/tabs.
+// It honours double quotes and single quotes, so arguments like
+// --open "My Notes.txt" are kept as a single token.
+// Empty quoted strings ("" or ”) produce an empty token.
+// Unclosed quotes at the end are treated as literal characters.
+//
+// It operates on raw BYTES and preserves them byte-for-byte: an EDITOR
+// command may contain non-ASCII bytes (a path like C:\Users\José\edit.exe or
+// an argument like --open "Informe ñ.txt"), and re-encoding each byte as a
+// rune would double-encode every byte >= 0x80 into mojibake. Quote matching
+// is byte-level for the ASCII quote characters, so byte iteration is correct
+// and sufficient — no rune-level iteration is needed.
 func splitArgs(s string) []string {
 	var fields []string
 	var cur strings.Builder
 	inSpace := true
+	inQuote := byte(0)   // 0 = not in quote, '"' or '\'' = inside quoted string
+	quotedEmpty := false // true when we're in a quote and haven't seen content yet
 	for i := 0; i < len(s); i++ {
 		c := s[i]
+		if inQuote != 0 {
+			// Inside a quote only the matching quote closes it; everything else
+			// (spaces, other quote characters) is literal content.
+			if c == inQuote {
+				// Closing quote of the same type.
+				inQuote = 0
+				if quotedEmpty {
+					// The quote enclosed nothing. Flush any pending token first so an
+					// empty quoted string embedded after content (e.g. --flag="")
+					// does not split one argument into two out of source order.
+					if cur.Len() > 0 {
+						fields = append(fields, cur.String())
+						cur.Reset()
+						inSpace = true
+					}
+					fields = append(fields, "")
+				}
+				quotedEmpty = false
+				continue
+			}
+			inSpace = false
+			cur.WriteByte(c)
+			quotedEmpty = false
+			continue
+		}
+		// Not inside a quote.
+		if inSpace && (c == '"' || c == '\'') {
+			// A quote at the START of a token opens a quoted region.
+			inQuote = c
+			quotedEmpty = true // will emit empty if no content before closing
+			continue
+		}
 		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
 			if !inSpace && cur.Len() > 0 {
 				fields = append(fields, cur.String())
@@ -69,17 +114,29 @@ func splitArgs(s string) []string {
 			}
 			continue
 		}
+		// A quote that arrives mid-token is a LITERAL byte, not a boundary.
+		// This is what preserves byte-for-byte the EDITOR commands that contain
+		// an embedded quote — a path like C:\a\b"c.exe — instead of silently
+		// deleting the quote and corrupting the path handed to exec.Command.
 		inSpace = false
 		cur.WriteByte(c)
+		quotedEmpty = false
 	}
-	if !inSpace && cur.Len() > 0 {
+	// Handle unclosed quote at end: treat the opening quote as literal.
+	if inQuote != 0 {
+		if cur.Len() > 0 {
+			fields = append(fields, string(inQuote)+cur.String())
+		} else {
+			fields = append(fields, string(inQuote))
+		}
+	} else if !inSpace && cur.Len() > 0 {
 		fields = append(fields, cur.String())
 	}
 	return fields
 }
 
 // resolveEditor returns the editor command string from environment.
-// EDITOR wins over VISUAL. Empty/whitespace → not set.
+// EDITOR wins over VISUAL. Empty/whitespace -> not set.
 func resolveEditor() (string, bool) {
 	if v := os.Getenv("EDITOR"); strings.TrimSpace(v) != "" {
 		return v, true
@@ -91,7 +148,7 @@ func resolveEditor() (string, bool) {
 }
 
 // editCursorFile opens the focused panel's cursor entry in an external editor.
-// See behaviour in spec: only single files; dirs/.. show message; no editor → message.
+// See behaviour in spec: only single files; dirs/.. show message; no editor -> message.
 func (a *App) editCursorFile() {
 	panel := a.focusedPanel()
 	entries := panel.Entries()
