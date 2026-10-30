@@ -11,13 +11,13 @@ import (
 type SyncMode int
 
 const (
-	SyncReal SyncMode = iota // Bidirectional: copy newer/missing both ways
-	SyncMirror               // Unidirectional: left → right, mirror exactly
+	SyncReal   SyncMode = iota // Bidirectional: copy newer/missing both ways
+	SyncMirror                 // Unidirectional: left → right, mirror exactly
 )
 
 // SyncEntry represents one entry in the comparison result.
 type SyncEntry struct {
-	RelPath     string    // Relative path from sync root
+	RelPath     string // Relative path from sync root
 	LeftExists  bool
 	RightExists bool
 	LeftInfo    os.FileInfo
@@ -33,21 +33,21 @@ type SyncAction int
 
 const (
 	ActionSkip            SyncAction = iota // No action needed (identical)
-	ActionCopyLeftToRight                    // Copy from left to right
-	ActionCopyRightToLeft                    // Copy from right to left
-	ActionDeleteRight                        // Delete from right (mirror mode)
-	ActionDeleteLeft                         // Delete from left (real sync conflict resolution)
-	ActionConflict                           // Conflict: both sides have different content
+	ActionCopyLeftToRight                   // Copy from left to right
+	ActionCopyRightToLeft                   // Copy from right to left
+	ActionDeleteRight                       // Delete from right (mirror mode)
+	ActionDeleteLeft                        // Delete from left (real sync conflict resolution)
+	ActionConflict                          // Conflict: both sides have different content
 )
 
 // CompareResult holds the complete comparison between two directories.
 type CompareResult struct {
-	Entries     []SyncEntry
-	Mode        SyncMode
-	LeftRoot    string
-	RightRoot   string
-	TotalItems  int
-	Actions     map[SyncAction]int // Count of each action type
+	Entries    []SyncEntry
+	Mode       SyncMode
+	LeftRoot   string
+	RightRoot  string
+	TotalItems int
+	Actions    map[SyncAction]int // Count of each action type
 }
 
 // SyncOptions configures the comparison/sync behavior.

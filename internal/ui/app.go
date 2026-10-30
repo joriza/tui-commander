@@ -321,7 +321,8 @@ func (a *App) hotlistDialog() {
 				a.ShowErrorDialog("Error", fmt.Sprintf("Cannot load hotlist entry: %v", err), nil)
 			}
 			a.closeTopDialog()
-		})	}
+		})
+	}
 	list.SetBorder(true).SetTitle(" Hotlist ").SetTitleAlign(tview.AlignCenter)
 	a.pages.AddPage("hotlist", a.wrapDialog(list, len(hl)+2), true, true)
 	a.dialogStack = append(a.dialogStack, "hotlist")
@@ -347,10 +348,17 @@ func (a *App) clearHotlist() {
 	})
 }
 
-// showCommandsMenu opens the Commands submenu with sync/compare.
+// showCommandsMenu opens the Commands submenu with sync and find.
 func (a *App) showCommandsMenu() {
 	a.closeTopDialog()
-	a.syncDialog()
+	form := tview.NewForm()
+	form.AddButton("Compare/Sync (Shift+F2)", func() { a.syncDialog() })
+	form.AddButton("Find Files...", func() { a.findDialog() })
+	form.AddButton("Cancel", func() { a.closeTopDialog() })
+	form.SetBorder(true).SetTitle(" Commands ").SetTitleAlign(tview.AlignCenter)
+	a.pages.AddPage("commandsmenu", a.wrapDialog(form, 8), true, true)
+	a.dialogStack = append(a.dialogStack, "commandsmenu")
+	a.tviewApp.SetFocus(form)
 }
 
 // showDriveMenu opens the Drive submenu (stub for now).
@@ -373,7 +381,7 @@ func (a *App) showConfigMenu() {
 	form := tview.NewForm()
 	form.AddFormItem(tview.NewTextView().
 		SetText(fmt.Sprintf("Sort: %s, dirs first: %v, reverse: %v\nMask: %s\nHotlist:\n%s",
-		cfg.By.String(), cfg.DirsFirst, cfg.Reverse, mask, hotlistStr)).
+			cfg.By.String(), cfg.DirsFirst, cfg.Reverse, mask, hotlistStr)).
 		SetDynamicColors(true))
 	form.AddButton("Add Current Dir to Hotlist", func() { a.addToHotlist() })
 	form.AddButton("Open Hotlist...", func() { a.closeTopDialog(); a.hotlistDialog() })
