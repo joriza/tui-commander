@@ -60,7 +60,7 @@ func (s SortBy) String() string {
 
 // SortConfig holds the per-panel sort configuration.
 type SortConfig struct {
-	By      SortBy
+	By        SortBy
 	DirsFirst bool
 	Reverse   bool
 }
@@ -85,6 +85,9 @@ type Panel struct {
 	// contains all entries. When non-empty, visible contains entries whose
 	// name contains the filter (case-insensitively).
 	filter string
+	// includeMask holds the persistent include filter pattern (filepath.Match
+	// syntax, e.g. "*.txt" or "*.go"). When empty, all entries pass.
+	includeMask string
 	// visible is the list Entries()/cursor/selection operate on. When
 	// filter is empty, visible is a copy of entries; otherwise it holds
 	// matching entries in the same order. visible must never alias the
@@ -101,6 +104,7 @@ func NewPanel() *Panel {
 		selected:    make(map[string]bool),
 		visible:     nil,
 		filter:      "",
+		includeMask: "",
 		sortConfig:  DefaultSortConfig(),
 	}
 }
@@ -343,6 +347,26 @@ func (p *Panel) ToggleReverse() {
 	p.sortEntries()
 }
 
+// IncludeMask returns the current include mask pattern.
+func (p *Panel) IncludeMask() string {
+	return p.includeMask
+}
+
+// SetIncludeMask sets the include mask pattern and re-applies the filter.
+// An empty string disables the mask. The pattern uses filepath.Match syntax.
+func (p *Panel) SetIncludeMask(mask string) {
+	p.includeMask = mask
+	p.applyFilter()
+	p.clampCursor()
+}
+
+// ClearIncludeMask clears the include mask and re-applies the filter.
+func (p *Panel) ClearIncludeMask() {
+	p.includeMask = ""
+	p.applyFilter()
+	p.clampCursor()
+}
+
 // ---------------------------------------------------------------------------
 // Selection
 // ---------------------------------------------------------------------------
@@ -486,30 +510,34 @@ func (p *Panel) matchMask(mask string) ([]string, error) {
 	return names, nil
 }
 
-// applyFilter rebuilds the visible slice from entries according to filter.
-// When filter is empty, visible is a copy of entries. When non-empty,
-// visible holds matching entries in the same order. visible must never alias
-// entries' backing array.
+// applyFilter rebuilds the visible slice from entries according to
+// the quick search filter and the include mask. An entry is visible only
+// if it matches BOTH the quick search substring (if set) and the include
+// mask pattern (if set). The include mask uses filepath.Match syntax.
 func (p *Panel) applyFilter() {
-	if p.filter == "" {
-		if p.visible == nil {
-			p.visible = make([]Entry, len(p.entries))
-			copy(p.visible, p.entries)
-			return
-		}
-		p.visible = append(p.visible[:0], p.entries...)
-		return
-	}
 	filterLower := strings.ToLower(p.filter)
+	hasFilter := p.filter != ""
+	hasMask := p.includeMask != ""
+
 	if p.visible == nil {
 		p.visible = make([]Entry, 0, len(p.entries))
 	} else {
 		p.visible = p.visible[:0]
 	}
+
 	for _, e := range p.entries {
-		if strings.Contains(strings.ToLower(e.Name), filterLower) {
-			p.visible = append(p.visible, e)
+		// Quick search substring filter (case-insensitive)
+		if hasFilter && !strings.Contains(strings.ToLower(e.Name), filterLower) {
+			continue
 		}
+		// Include mask pattern filter (filepath.Match, case-sensitive)
+		if hasMask {
+			matched, err := filepath.Match(p.includeMask, e.Name)
+			if err != nil || !matched {
+				continue
+			}
+		}
+		p.visible = append(p.visible, e)
 	}
 }
 

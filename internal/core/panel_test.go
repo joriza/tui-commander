@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strings"
 	"os"
 	"path/filepath"
 	"testing"
@@ -1046,5 +1047,155 @@ func TestLoad_ClearsFilter(t *testing.T) {
 	}
 	if got := len(p.Entries()); got != 6 {
 		t.Errorf("expected 6 entries after Load (filter cleared), got %d", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Include mask (persistent pattern filter)
+// ---------------------------------------------------------------------------
+
+func TestPanel_IncludeMask_Basic(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Initially no mask, all 6 entries visible
+	if got := len(p.Entries()); got != 6 {
+		t.Errorf("expected 6 entries, got %d", got)
+	}
+	if p.IncludeMask() != "" {
+		t.Errorf("expected empty include mask, got %q", p.IncludeMask())
+	}
+
+	// Set mask to *.txt - should match a-file.txt and b-file.txt
+	p.SetIncludeMask("*.txt")
+	if p.IncludeMask() != "*.txt" {
+		t.Errorf("expected mask *.txt, got %q", p.IncludeMask())
+	}
+	entries := p.Entries()
+	if got := len(entries); got != 2 {
+		t.Errorf("expected 2 *.txt entries, got %d", got)
+	}
+	for _, e := range entries {
+		if !strings.HasSuffix(e.Name, ".txt") {
+			t.Errorf("entry %q does not match *.txt", e.Name)
+		}
+	}
+
+	// Clear mask - back to all entries
+	p.ClearIncludeMask()
+	if p.IncludeMask() != "" {
+		t.Errorf("expected mask cleared, got %q", p.IncludeMask())
+	}
+	if got := len(p.Entries()); got != 6 {
+		t.Errorf("expected 6 entries after clear, got %d", got)
+	}
+}
+
+func TestPanel_IncludeMask_WithQuickSearch(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// Set mask to *.txt (2 entries)
+	p.SetIncludeMask("*.txt")
+	if got := len(p.Entries()); got != 2 {
+		t.Errorf("expected 2 *.txt entries, got %d", got)
+	}
+
+	// Add quick search filter "a" - should narrow to a-file.txt only
+	p.SetFilter("a")
+	entries := p.Entries()
+	if got := len(entries); got != 1 {
+		t.Errorf("expected 1 entry matching both *.txt and 'a', got %d", got)
+	}
+	if entries[0].Name != "a-file.txt" {
+		t.Errorf("expected a-file.txt, got %q", entries[0].Name)
+	}
+
+	// Clear quick search - back to 2 *.txt entries
+	p.ClearFilter()
+	if got := len(p.Entries()); got != 2 {
+		t.Errorf("expected 2 *.txt entries after clear filter, got %d", got)
+	}
+
+	// Clear mask - back to all 6
+	p.ClearIncludeMask()
+	if got := len(p.Entries()); got != 6 {
+		t.Errorf("expected 6 entries after clear mask, got %d", got)
+	}
+}
+
+func TestPanel_IncludeMask_CaseSensitive(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	// Create a file with uppercase extension
+	if err := os.WriteFile(filepath.Join(dir, "UPPER.TXT"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	// filepath.Match is case-sensitive on all platforms
+	p.SetIncludeMask("*.txt")
+	entries := p.Entries()
+	for _, e := range entries {
+		if e.Name == "UPPER.TXT" {
+			t.Errorf("*.txt mask should not match UPPER.TXT (case-sensitive)")
+		}
+	}
+	if got := len(entries); got != 2 {
+		t.Errorf("expected 2 *.txt entries (lowercase only), got %d", got)
+	}
+
+	// Try case-insensitive pattern using []
+	p.SetIncludeMask("*.[tT][xX][tT]")
+	entries = p.Entries()
+	foundUpper := false
+	for _, e := range entries {
+		if e.Name == "UPPER.TXT" {
+			foundUpper = true
+		}
+	}
+	if !foundUpper {
+		t.Errorf("*.[tT][xX][tT] should match UPPER.TXT")
+	}
+}
+
+func TestPanel_IncludeMask_PersistsAcrossReload(t *testing.T) {
+	dir, cleanup := mkDir(t)
+	defer cleanup()
+
+	p := NewPanel()
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	p.SetIncludeMask("*.log")
+	if got := len(p.Entries()); got != 1 {
+		t.Errorf("expected 1 *.log entry, got %d", got)
+	}
+
+	// Reload - mask should persist
+	if err := p.Load(dir); err != nil {
+		t.Fatalf("Reload: %v", err)
+	}
+	if p.IncludeMask() != "*.log" {
+		t.Errorf("expected mask persisted after reload, got %q", p.IncludeMask())
+	}
+	if got := len(p.Entries()); got != 1 {
+		t.Errorf("expected 1 *.log entry after reload, got %d", got)
 	}
 }

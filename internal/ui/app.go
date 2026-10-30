@@ -167,8 +167,8 @@ func (a *App) buildUI() {
 	// Re-render every frame so the cursor bar matches the real panel
 	// width (startup and terminal resizes included).
 	a.tviewApp.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
-	a.render()
-	return false
+		a.render()
+		return false
 	})
 }
 
@@ -181,7 +181,7 @@ func (a *App) buildMenuBar() *tview.Flex {
 	menu.SetDirection(tview.FlexColumn)
 
 	items := []struct {
-		label string
+		label  string
 		hotkey string
 		action func()
 	}{
@@ -232,7 +232,7 @@ func (a *App) showViewMenu() {
 	items := []tview.FormItem{
 		tview.NewTextView().
 			SetText(fmt.Sprintf("Current sort: %s, dirs first: %v, reverse: %v",
-			cfg.By.String(), cfg.DirsFirst, cfg.Reverse)).
+				cfg.By.String(), cfg.DirsFirst, cfg.Reverse)).
 			SetDynamicColors(true),
 	}
 	form := tview.NewForm()
@@ -245,6 +245,8 @@ func (a *App) showViewMenu() {
 	form.AddButton("Sort by Ext", func() { a.setSortBy(core.SortByExt) })
 	form.AddButton("Toggle Dirs First", func() { a.toggleDirsFirst() })
 	form.AddButton("Toggle Reverse", func() { a.toggleReverse() })
+	form.AddButton("Include Mask...", func() { a.closeTopDialog(); a.includeMaskDialog() })
+	form.AddButton("Clear Mask", func() { a.clearIncludeMask() })
 	form.AddButton("Close", func() { a.closeTopDialog() })
 	form.SetBorder(true).SetTitle(" View ").SetTitleAlign(tview.AlignCenter)
 	a.pages.AddPage("viewmenu", a.wrapDialog(form, 12), true, true)
@@ -267,6 +269,30 @@ func (a *App) toggleDirsFirst() {
 // toggleReverse flips the reverse-order setting for the focused panel.
 func (a *App) toggleReverse() {
 	a.focusedPanel().ToggleReverse()
+	a.render()
+}
+
+// includeMaskDialog opens an input dialog to set the include mask pattern.
+func (a *App) includeMaskDialog() {
+	panel := a.focusedPanel()
+	current := panel.IncludeMask()
+	input := tview.NewInputField().
+		SetLabel("Include mask (filepath.Match): ").
+		SetText(current).
+		SetFieldWidth(30)
+	a.ShowFormDialog("Include Mask", []tview.FormItem{input}, 0, func(ok bool) {
+		if !ok {
+			return
+		}
+		mask := input.GetText()
+		panel.SetIncludeMask(mask)
+		a.render()
+	})
+}
+
+// clearIncludeMask clears the include mask for the focused panel.
+func (a *App) clearIncludeMask() {
+	a.focusedPanel().ClearIncludeMask()
 	a.render()
 }
 
@@ -587,19 +613,19 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 
 	case event.Key() == tcell.KeyF9:
 		a.menuActive = !a.menuActive
-	if a.menuActive {
-		// Focus the first menu item (File) as entry point
-		// For now, just show the File menu; a full menu system
-		// with arrow navigation will come in a follow-up.
-		a.showFileMenu()
-	} else {
-		// Return focus to the active panel
-		if a.focusIndex == 0 {
-		a.tviewApp.SetFocus(a.leftView)
+		if a.menuActive {
+			// Focus the first menu item (File) as entry point
+			// For now, just show the File menu; a full menu system
+			// with arrow navigation will come in a follow-up.
+			a.showFileMenu()
 		} else {
-		a.tviewApp.SetFocus(a.rightView)
+			// Return focus to the active panel
+			if a.focusIndex == 0 {
+				a.tviewApp.SetFocus(a.leftView)
+			} else {
+				a.tviewApp.SetFocus(a.rightView)
+			}
 		}
-	}
 		return nil
 
 	case event.Key() == tcell.KeyF10:
