@@ -88,6 +88,8 @@ type Panel struct {
 	// includeMask holds the persistent include filter pattern (filepath.Match
 	// syntax, e.g. "*.txt" or "*.go"). When empty, all entries pass.
 	includeMask string
+	// hotlist holds the user's bookmarked directories for this panel.
+	hotlist []string
 	// visible is the list Entries()/cursor/selection operate on. When
 	// filter is empty, visible is a copy of entries; otherwise it holds
 	// matching entries in the same order. visible must never alias the
@@ -105,6 +107,7 @@ func NewPanel() *Panel {
 		visible:     nil,
 		filter:      "",
 		includeMask: "",
+		hotlist:     nil,
 		sortConfig:  DefaultSortConfig(),
 	}
 }
@@ -365,6 +368,41 @@ func (p *Panel) ClearIncludeMask() {
 	p.includeMask = ""
 	p.applyFilter()
 	p.clampCursor()
+}
+
+// Hotlist returns a copy of the panel's hotlist.
+func (p *Panel) Hotlist() []string {
+	if p.hotlist == nil {
+		return nil
+	}
+	result := make([]string, len(p.hotlist))
+	copy(result, p.hotlist)
+	return result
+}
+
+// AddToHotlist adds the current directory to the hotlist if not already present.
+// Returns true if added, false if already in hotlist.
+func (p *Panel) AddToHotlist() bool {
+	if p.currentPath == "" {
+		return false
+	}
+	for _, h := range p.hotlist {
+		if h == p.currentPath {
+			return false
+		}
+	}
+	p.hotlist = append(p.hotlist, p.currentPath)
+	return true
+}
+
+// RemoveFromHotlist removes a path from the hotlist by index.
+// Returns true if removed, false if index out of range.
+func (p *Panel) RemoveFromHotlist(idx int) bool {
+	if idx < 0 || idx >= len(p.hotlist) {
+		return false
+	}
+	p.hotlist = append(p.hotlist[:idx], p.hotlist[idx+1:]...)
+	return true
 }
 
 // ---------------------------------------------------------------------------

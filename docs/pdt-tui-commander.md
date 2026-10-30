@@ -55,7 +55,20 @@ Al salir con F10 que pida confirmacion, por default No. Que se pueda cambiar opc
 Analizar la posibilidad
 Si los datos estan en una unidad fija, que vaya a la papelera, si la unidad es removible, se elimina definitivamente.
 
+
+Agregue a la lista de pendientes con la prioridad que considere adecuada.
+Sincronismo de carpetas y sub carpetas.
+Sincronismo real y modo espejo, donde tiene importancia la carpeta origen sobre la destino, en los casos de sincronismo, primero mostrar lo que encuentra, que inicie con confirmacion del usuario.
+Expliqueme como es la unificacion cuando hay colision de productos que no tienen codigo de barras.
+Siempre que termine de compilar una nueva version, abra el codigo QR en pantalla.
+Instalada la version 0.3.5
+Cuando voy a realizar una busqueda manual, solo me habilita teclado numerico, que me permita seleccionar entre teclado numerico o alfabético.
+
 ----
+
+
+
+
 
 
 

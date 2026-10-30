@@ -1,9 +1,9 @@
 package core
 
 import (
-	"strings"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -33,9 +33,9 @@ func mkDir(t *testing.T) (string, func()) {
 		content string
 		modTime time.Time
 	}{
-		"a-file.txt":  {"hello", time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC)},
-		"b-file.txt":  {"world!", time.Date(2025, 2, 20, 14, 0, 0, 0, time.UTC)},
-		"c-file.log":  {"log entry", time.Date(2025, 3, 10, 8, 0, 0, 0, time.UTC)},
+		"a-file.txt": {"hello", time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC)},
+		"b-file.txt": {"world!", time.Date(2025, 2, 20, 14, 0, 0, 0, time.UTC)},
+		"c-file.log": {"log entry", time.Date(2025, 3, 10, 8, 0, 0, 0, time.UTC)},
 	}
 	for name, info := range files {
 		p := filepath.Join(dir, name)

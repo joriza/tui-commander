@@ -296,6 +296,57 @@ func (a *App) clearIncludeMask() {
 	a.render()
 }
 
+// addToHotlist adds the current directory to the focused panel's hotlist.
+func (a *App) addToHotlist() {
+	if a.focusedPanel().AddToHotlist() {
+		a.ShowMessageDialog("Hotlist", "Current directory added to hotlist.", nil)
+	} else {
+		a.ShowMessageDialog("Hotlist", "Current directory is already in hotlist.", nil)
+	}
+}
+
+// hotlistDialog opens a list dialog to navigate to a hotlisted directory.
+func (a *App) hotlistDialog() {
+	panel := a.focusedPanel()
+	hl := panel.Hotlist()
+	if len(hl) == 0 {
+		a.ShowMessageDialog("Hotlist", "Hotlist is empty. Use 'Add Current Dir to Hotlist' from Config menu.", nil)
+		return
+	}
+	list := tview.NewList().ShowSecondaryText(false)
+	for i, dir := range hl {
+		idx := i
+		list.AddItem(dir, "", 0, func() {
+			if err := panel.Load(hl[idx]); err != nil {
+				a.ShowErrorDialog("Error", fmt.Sprintf("Cannot load hotlist entry: %v", err), nil)
+			}
+			a.closeTopDialog()
+		})	}
+	list.SetBorder(true).SetTitle(" Hotlist ").SetTitleAlign(tview.AlignCenter)
+	a.pages.AddPage("hotlist", a.wrapDialog(list, len(hl)+2), true, true)
+	a.dialogStack = append(a.dialogStack, "hotlist")
+	a.tviewApp.SetFocus(list)
+}
+
+// clearHotlist removes all entries from the focused panel's hotlist.
+func (a *App) clearHotlist() {
+	panel := a.focusedPanel()
+	if len(panel.Hotlist()) == 0 {
+		a.ShowMessageDialog("Hotlist", "Hotlist is already empty.", nil)
+		return
+	}
+	a.ShowConfirmDialog("Clear Hotlist", "Remove all hotlist entries?", "Yes", "No", true, func(ok bool) {
+		if ok {
+			// Remove all by repeatedly removing index 0
+			for len(panel.Hotlist()) > 0 {
+				panel.RemoveFromHotlist(0)
+			}
+			a.ShowMessageDialog("Hotlist", "Hotlist cleared.", nil)
+			a.render()
+		}
+	})
+}
+
 // showCommandsMenu opens the Commands submenu (stub for now).
 func (a *App) showCommandsMenu() {
 	a.ShowMessageDialog("Commands", "Copy  F5\nMove  F6\nRename  Shift+F6\nDuplicate  Shift+F5\nDelete  F8\nMake Dir  F7\n\nCompare Dirs  (not in v1)\nSync Dirs  (not in v1)\nFind File  (not in v1)\nMulti-Rename  (not in v1)", nil)
@@ -306,9 +357,33 @@ func (a *App) showDriveMenu() {
 	a.ShowMessageDialog("Drive", "Left Drive  Alt+F1\nRight Drive  Alt+F2", nil)
 }
 
-// showConfigMenu opens the Config submenu (stub for now).
+// showConfigMenu opens the Config submenu with sort, filters, hotlist.
 func (a *App) showConfigMenu() {
-	a.ShowMessageDialog("Config", "Sort: Name/Size/Time/Ext  (not in v1)\nFilters: Include mask  (not in v1)\nHotlist  (not in v1)\nKeybindings  (not in v1)", nil)
+	panel := a.focusedPanel()
+	cfg := panel.SortConfig()
+	mask := panel.IncludeMask()
+	hl := panel.Hotlist()
+	var hotlistStr string
+	if len(hl) == 0 {
+		hotlistStr = "(empty)"
+	} else {
+		hotlistStr = strings.Join(hl, "\n")
+	}
+	form := tview.NewForm()
+	form.AddFormItem(tview.NewTextView().
+		SetText(fmt.Sprintf("Sort: %s, dirs first: %v, reverse: %v\nMask: %s\nHotlist:\n%s",
+		cfg.By.String(), cfg.DirsFirst, cfg.Reverse, mask, hotlistStr)).
+		SetDynamicColors(true))
+	form.AddButton("Add Current Dir to Hotlist", func() { a.addToHotlist() })
+	form.AddButton("Open Hotlist...", func() { a.closeTopDialog(); a.hotlistDialog() })
+	form.AddButton("Clear Hotlist", func() { a.clearHotlist() })
+	form.AddButton("Sort Options...", func() { a.closeTopDialog(); a.showViewMenu() })
+	form.AddButton("Include Mask...", func() { a.closeTopDialog(); a.includeMaskDialog() })
+	form.AddButton("Close", func() { a.closeTopDialog() })
+	form.SetBorder(true).SetTitle(" Config ").SetTitleAlign(tview.AlignCenter)
+	a.pages.AddPage("configmenu", a.wrapDialog(form, 16), true, true)
+	a.dialogStack = append(a.dialogStack, "configmenu")
+	a.tviewApp.SetFocus(form)
 }
 
 // showHelpMenu opens the Help submenu (stub for now).
