@@ -180,32 +180,17 @@ func TestSplitArgsPreservesRawBytes(t *testing.T) {
 			if len(got) != len(tt.want) {
 				t.Fatalf("len(got)=%d want %d: got=%v", len(got), len(tt.want), got)
 			}
+			// Go string equality is byte equality, so `got[i] != tt.want[i]`
+			// already rejects a mojibake re-encoding (a re-encoded string differs
+			// byte-by-byte, not just as decoded runes). The %x format keeps the
+			// failure output in raw bytes so the corruption is visible.
 			for i := range got {
 				if got[i] != tt.want[i] {
 					t.Fatalf("got[%d]=%x (%q) want %x (%q)", i, got[i], got[i], tt.want[i], tt.want[i])
 				}
 			}
-			// The bytes must be identical, not just the decoded runes: compare the
-			// raw byte slices so a re-encoding cannot slip through as equal text.
-			for i := range got {
-				if !bytesEqual(got[i], tt.want[i]) {
-					t.Fatalf("got[%d] bytes % x differ from want % x", i, []byte(got[i]), []byte(tt.want[i]))
-				}
-			}
 		})
 	}
-}
-
-func bytesEqual(a, b string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := 0; i < len(a); i++ {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func TestSplitArgs(t *testing.T) {

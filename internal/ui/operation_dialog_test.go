@@ -43,7 +43,7 @@ func TestEscOnQuitDialogDoesNotCancelOperation(t *testing.T) {
 	closeProgress, progTitle := openProgressDialog(app)
 	// Bind the cancel BEFORE Esc and keep the SAME instance: the previous
 	// version bound a second, freshly-allocated flag after Esc and asserted on
-		// it, which is false by construction and made the test pass regardless of
+	// it, which is false by construction and made the test pass regardless of
 	// whether Esc had cancelled the operation.
 	f := bindOperationCancel(app, progTitle)
 	app.confirmQuit() // stacks the quit dialog on top of the progress dialog

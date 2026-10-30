@@ -70,8 +70,8 @@ func splitArgs(s string) []string {
 	var fields []string
 	var cur strings.Builder
 	inSpace := true
-	inQuote := byte(0)    // 0 = not in quote, '"' or '\'' = inside quoted string
-	quotedEmpty := false  // true when we're in a quote and haven't seen content yet
+	inQuote := byte(0)   // 0 = not in quote, '"' or '\'' = inside quoted string
+	quotedEmpty := false // true when we're in a quote and haven't seen content yet
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		// Handle quote boundaries
