@@ -55,13 +55,39 @@ func parseEditorCommand(cmd string) (string, []string, bool) {
 }
 
 // splitArgs splits a string by whitespace, collapsing multiple spaces/tabs.
+// It honours double quotes and single quotes, so arguments like
+// --open "My Notes.txt" are kept as a single token.
+// Empty quoted strings ("" or ”) produce an empty token.
+// Unclosed quotes at the end are treated as literal characters.
 func splitArgs(s string) []string {
 	var fields []string
 	var cur strings.Builder
 	inSpace := true
+	inQuote := rune(0)   // 0 = not in quote, '"' or '\'' = inside quoted string
+	quotedEmpty := false // true when we're in a quote and haven't seen content yet
 	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+		c := rune(s[i])
+		// Handle quote boundaries
+		if c == '"' || c == '\'' {
+			if inQuote == c {
+				// Closing quote of the same type
+				inQuote = 0
+				// If we were in a quoted section with no content, emit empty token
+				if quotedEmpty {
+					fields = append(fields, "")
+				}
+				quotedEmpty = false
+				continue
+			}
+			if inQuote == 0 {
+				// Opening quote
+				inQuote = c
+				quotedEmpty = true // will emit empty if no content before closing
+				continue
+			}
+			// Quote inside a different quote type -> literal
+		}
+		if inQuote == 0 && (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
 			if !inSpace && cur.Len() > 0 {
 				fields = append(fields, cur.String())
 				cur.Reset()
@@ -70,16 +96,28 @@ func splitArgs(s string) []string {
 			continue
 		}
 		inSpace = false
-		cur.WriteByte(c)
+		cur.WriteRune(c)
+		quotedEmpty = false // we saw content inside the quote
 	}
-	if !inSpace && cur.Len() > 0 {
+	// Handle unclosed quote at end: treat the opening quote as literal
+	if inQuote != 0 {
+		// Rewind: the opening quote was consumed but not emitted.
+		// The content after it is in cur. We need to prepend the quote char.
+		// Actually, simpler: the whole thing is one token including the quote.
+		// We'll emit what we have with the quote char prepended.
+		if cur.Len() > 0 {
+			fields = append(fields, string(inQuote)+cur.String())
+		} else {
+			fields = append(fields, string(inQuote))
+		}
+	} else if !inSpace && cur.Len() > 0 {
 		fields = append(fields, cur.String())
 	}
 	return fields
 }
 
 // resolveEditor returns the editor command string from environment.
-// EDITOR wins over VISUAL. Empty/whitespace → not set.
+// EDITOR wins over VISUAL. Empty/whitespace -> not set.
 func resolveEditor() (string, bool) {
 	if v := os.Getenv("EDITOR"); strings.TrimSpace(v) != "" {
 		return v, true
@@ -91,7 +129,7 @@ func resolveEditor() (string, bool) {
 }
 
 // editCursorFile opens the focused panel's cursor entry in an external editor.
-// See behaviour in spec: only single files; dirs/.. show message; no editor → message.
+// See behaviour in spec: only single files; dirs/.. show message; no editor -> message.
 func (a *App) editCursorFile() {
 	panel := a.focusedPanel()
 	entries := panel.Entries()

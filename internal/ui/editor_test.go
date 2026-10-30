@@ -147,3 +147,66 @@ func TestResolveEditor(t *testing.T) {
 		}
 	})
 }
+
+func TestSplitArgs(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{
+			name:  "simple",
+			input: "foo bar baz",
+			want:  []string{"foo", "bar", "baz"},
+		},
+		{
+			name:  "double quotes",
+			input: `--open "My Notes.txt"`,
+			want:  []string{"--open", "My Notes.txt"},
+		},
+		{
+			name:  "single quotes",
+			input: `--open 'My Notes.txt'`,
+			want:  []string{"--open", "My Notes.txt"},
+		},
+		{
+			name:  "mixed quotes nested",
+			input: `--arg="it's fine"`,
+			want:  []string{"--arg=it's fine"},
+		},
+		{
+			name:  "quoted empty string",
+			input: `"" --flag`,
+			want:  []string{"", "--flag"},
+		},
+		{
+			name:  "unclosed quote treated as single token",
+			input: `"unclosed arg`,
+			want:  []string{`"unclosed arg`},
+		},
+		{
+			name:  "empty input",
+			input: "",
+			want:  []string{},
+		},
+		{
+			name:  "only whitespace",
+			input: "   \t  ",
+			want:  []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := splitArgs(tt.input)
+			if len(got) != len(tt.want) {
+				t.Fatalf("len(got)=%d want %d: got=%v", len(got), len(tt.want), got)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("got[%d]=%q want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}
