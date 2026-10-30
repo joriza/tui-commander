@@ -175,6 +175,18 @@ func (a *App) render() {
 // renderPanel draws a single panel's entries into its TextView.
 // The focused panel gets a green border; the unfocused gets grey.
 // The cursor entry is shown in reverse video.
+// linkSuffix renders the ` -> target` marker shown for a symlink or
+// junction. It is empty for ordinary entries, so renderers can use the
+// empty string as the "not a link" test. The target is truncated in the
+// middle (preserving start and extension) so a very long target cannot
+// push the row past the panel width.
+func linkSuffix(e core.Entry) string {
+	if e.Link == "" {
+		return ""
+	}
+	return " -> " + truncateMiddle(e.Link, 30)
+}
+
 func (a *App) renderPanel(panel *core.Panel, view *tview.TextView, focused bool) {
 	view.Clear()
 
@@ -210,7 +222,7 @@ func (a *App) renderPanel(panel *core.Panel, view *tview.TextView, focused bool)
 		mtimeStr := e.ModTime.Format("2006-01-02 15:04")
 
 		nameCol := nameColumnWidth(width)
-		line := fmt.Sprintf("%-*s  %8s  %s", nameCol, truncateMiddle(e.Name, nameCol), sizeStr, mtimeStr)
+		line := fmt.Sprintf("%-*s  %8s  %s", nameCol, truncateMiddle(e.Name, nameCol)+linkSuffix(e), sizeStr, mtimeStr)
 		// The cursor bar must match the real row width: a fixed padding
 		// wider than the panel wraps lines and drags the background color
 		// into extra visual lines (looked like "everything selected").

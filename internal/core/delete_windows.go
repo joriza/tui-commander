@@ -14,7 +14,21 @@ import (
 
 // removePath deletes a file or directory tree. On Windows, readonly
 // files must have their attribute cleared before removal.
+//
+// A symlink or junction is removed AS A LINK: the traversal policy is to
+// never follow a link. Removing the link does not touch the target.
+// os.RemoveAll would follow a symlink and delete the target tree, so
+// we use Lstat and remove only the link when it is one.
 func removePath(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		// Clear readonly attribute so the link itself can be removed.
+		os.Chmod(path, 0666)
+		return os.Remove(path)
+	}
 	// Clear readonly attribute so the file/directory can be removed.
 	os.Chmod(path, 0666)
 	return os.RemoveAll(path)

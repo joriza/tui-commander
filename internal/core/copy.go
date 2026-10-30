@@ -267,15 +267,39 @@ type copyReporter struct {
 
 // copyItem copies a single item (file or directory) from src to dst.
 func (q *CopyQueue) copyItem(ctx context.Context, src, dst string, rep *copyReporter) error {
-	srcInfo, err := os.Stat(src)
+	srcInfo, err := os.Lstat(src)
 	if err != nil {
 		return err
+	}
+
+	// A symlink or junction is copied AS A LINK: the traversal policy is to
+	// never follow a link unless the user explicitly asked to. Following one
+	// here would let a link to a parent directory hang the copy in a loop, or
+	// duplicate a tree the user never selected. os.Stat would follow it, so
+	// Lstat is the correct probe for the decision.
+	if srcInfo.Mode()&os.ModeSymlink != 0 {
+		return q.copyLink(src, dst)
 	}
 
 	if srcInfo.IsDir() {
 		return q.copyDir(ctx, src, dst, rep)
 	}
 	return q.copyFile(ctx, src, dst, rep)
+}
+
+// copyLink duplicates a symlink or junction as a new link pointing at the
+// same target. It does not read or write the target's contents, so a link
+	// to a parent directory cannot hang the copy in a loop and a link to a
+	// large or remote tree is not duplicated.
+func (q *CopyQueue) copyLink(src, dst string) error {
+	target, err := os.Readlink(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+	return os.Symlink(target, dst)
 }
 
 // copyFile copies a single file using chunked buffered I/O.
@@ -418,6 +442,15 @@ func (q *CopyQueue) copyDir(ctx context.Context, src, dst string, rep *copyRepor
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+
+		// Decide with Lstat, not Stat: a link to a directory reports IsDir
+		// but must be copied as a link, never descended into.
+		if linkInfo, lerr := os.Lstat(srcPath); lerr == nil && linkInfo.Mode()&os.ModeSymlink != 0 {
+			if err := q.copyLink(srcPath, dstPath); err != nil {
+				return err
+			}
+			continue
 		}
 
 		if entry.IsDir() {

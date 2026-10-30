@@ -9,7 +9,19 @@ import (
 
 // removePath deletes a file or directory tree. On non-Windows platforms
 // the standard library handles permissions correctly.
+//
+// A symlink or junction is removed AS A LINK: the traversal policy is to
+// never follow a link. Removing the link does not touch the target.
+// os.RemoveAll would follow a symlink and delete the target tree, so
+// we use Lstat and remove only the link when it is one.
 func removePath(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return os.Remove(path)
+	}
 	return os.RemoveAll(path)
 }
 

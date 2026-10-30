@@ -169,17 +169,30 @@ func (q *MoveQueue) preWalk() (int64, int, []int64, int) {
 	totalFiles := 0
 
 	for i, item := range q.items {
-		info, err := os.Stat(item.Source)
+		info, err := os.Lstat(item.Source)
 		if err != nil {
 			continue
 		}
-		if info.IsDir() {
+		// A symlink to a directory reports IsDir but must not be walked into:
+		// its target tree must not be counted in preWalk. Lstat gives the link
+		// itself; WalkDir with Lstat keeps the estimate honest.
+		if info.Mode()&os.ModeSymlink != 0 && info.IsDir() {
+			sizes[i] = 0 // link size is negligible; target is not counted
+		} else if info.IsDir() {
 			var dirBytes int64
-			filepath.Walk(item.Source, func(path string, fi os.FileInfo, err error) error {
+			filepath.WalkDir(item.Source, func(path string, d os.DirEntry, err error) error {
 				if err != nil {
 					return nil
 				}
-				if !fi.IsDir() {
+				// WalkDir uses Lstat, so a symlink shows up as a DirEntry with
+				// Type()&ModeSymlink != 0. We skip it to avoid following.
+				if d.IsDir() {
+					return nil
+				}
+				if d.Type()&os.ModeSymlink != 0 {
+					return nil
+				}
+				if fi, ferr := d.Info(); ferr == nil {
 					dirBytes += fi.Size()
 					totalFiles++
 				}

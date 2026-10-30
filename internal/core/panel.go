@@ -14,11 +14,18 @@ import (
 // ---------------------------------------------------------------------------
 
 // Entry represents a single filesystem entry in a panel listing.
+//
+// Link holds the resolved target of a symlink or junction when the entry is
+// one, and is empty for ordinary entries. It is filled by Lstat, never by
+// following the link: the listing marks a link without descending into it.
+// The field exists so a renderer can show the `name -> target` marker and so
+// the traversal policy can refuse a link without a second stat call.
 type Entry struct {
-	Name   string
-	IsDir  bool
-	Size   int64
+	Name    string
+	IsDir   bool
+	Size    int64
 	ModTime time.Time
+	Link    string
 }
 
 // ---------------------------------------------------------------------------
@@ -80,13 +87,22 @@ func (p *Panel) Load(path string) error {
 			Name:  de.Name(),
 			IsDir: de.IsDir(),
 		}
-		// Read metadata for both files and directories so the listing can
-		// show a correct modification time for folders too; only files
-		// carry a meaningful size.
+		// de.Info() is an Lstat: it reports the link itself, never its
+		// target, so a symlink shows up as a link here and the listing does
+		// not descend into it.
 		if info, err := de.Info(); err == nil {
 			e.ModTime = info.ModTime()
 			if !de.IsDir() {
 				e.Size = info.Size()
+			}
+			// A symlink or junction is marked with its target so the listing
+			// can render `name -> target`. The target is read with Readlink,
+			// which does not follow the link, so a dangling link reports its
+			// stored target rather than an error.
+			if info.Mode()&os.ModeSymlink != 0 {
+				if target, rerr := os.Readlink(filepath.Join(cleaned, de.Name())); rerr == nil {
+					e.Link = target
+				}
 			}
 		}
 		p.entries = append(p.entries, e)
@@ -420,4 +436,3 @@ func (p *Panel) FirstMatchIndex() int {
 	}
 	return -1
 }
-
