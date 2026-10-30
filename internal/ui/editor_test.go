@@ -152,6 +152,11 @@ func TestResolveEditor(t *testing.T) {
 // every byte >= 0x80 as a rune, doubling it into mojibake and corrupting the
 // EDITOR command handed to exec.Command. It is a separate table so the byte
 // preservation contract cannot be lost when the main table is edited.
+//
+// It also guards the quote semantics: a quote is a boundary ONLY at the start
+// of a token. A quote that arrives mid-token is a literal byte, so an EDITOR
+// command containing an embedded quote (a path like C:\a\b"c.exe) is passed
+// through byte-for-byte instead of having the quote silently deleted.
 func TestSplitArgsPreservesRawBytes(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -172,6 +177,21 @@ func TestSplitArgsPreservesRawBytes(t *testing.T) {
 			name:  "4-byte UTF-8 sequence survives",
 			input: `prog "€ file.txt"`,
 			want:  []string{"prog", "€ file.txt"},
+		},
+		{
+			name:  "quote mid-token is preserved, not deleted",
+			input: `foo"bar`,
+			want:  []string{"foo\"bar"},
+		},
+		{
+			name:  "embedded quote in a path is preserved byte-for-byte",
+			input: `C:\a\b"c.exe`,
+			want:  []string{"C:\\a\\b\"c.exe"},
+		},
+		{
+			name:  "double quote mid-token is preserved, not treated as empty token",
+			input: `--flag="" C:\x.txt`,
+			want:  []string{"--flag=\"\"", "C:\\x.txt"},
 		},
 	}
 	for _, tt := range cases {
@@ -215,9 +235,24 @@ func TestSplitArgs(t *testing.T) {
 			want:  []string{"--open", "My Notes.txt"},
 		},
 		{
-			name:  "mixed quotes nested",
-			input: `--arg="it's fine"`,
-			want:  []string{"--arg=it's fine"},
+			name:  "quote at token start opens a region, inner quote is literal",
+			input: `--arg "it's fine"`,
+			want:  []string{"--arg", "it's fine"},
+		},
+		{
+			name:  "quote mid-token is a literal byte, not a boundary",
+			input: `foo"bar`,
+			want:  []string{"foo\"bar"},
+		},
+		{
+			name:  "embedded quote in a path is preserved byte-for-byte",
+			input: `C:\a\b"c.exe`,
+			want:  []string{"C:\\a\\b\"c.exe"},
+		},
+		{
+			name:  "double quote mid-token is preserved, not treated as empty token",
+			input: `--flag="" C:\x.txt`,
+			want:  []string{"--flag=\"\"", "C:\\x.txt"},
 		},
 		{
 			name:  "quoted empty string",
@@ -248,11 +283,6 @@ func TestSplitArgs(t *testing.T) {
 			name:  "non-ASCII bytes preserved byte-for-byte in an unquoted program",
 			input: `C:\Users\José\edit.exe file.txt`,
 			want:  []string{"C:\\Users\\José\\edit.exe", "file.txt"},
-		},
-		{
-			name:  "empty quoted string embedded after content keeps order",
-			input: `--flag="" C:\x.txt`,
-			want:  []string{"--flag=", "", "C:\\x.txt"},
 		},
 	}
 

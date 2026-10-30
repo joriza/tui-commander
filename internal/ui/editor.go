@@ -74,9 +74,10 @@ func splitArgs(s string) []string {
 	quotedEmpty := false // true when we're in a quote and haven't seen content yet
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		// Handle quote boundaries
-		if c == '"' || c == '\'' {
-			if inQuote == c {
+		if inQuote != 0 {
+			// Inside a quote only the matching quote closes it; everything else
+			// (spaces, other quote characters) is literal content.
+			if c == inQuote {
 				// Closing quote of the same type.
 				inQuote = 0
 				if quotedEmpty {
@@ -93,15 +94,19 @@ func splitArgs(s string) []string {
 				quotedEmpty = false
 				continue
 			}
-			if inQuote == 0 {
-				// Opening quote
-				inQuote = c
-				quotedEmpty = true // will emit empty if no content before closing
-				continue
-			}
-			// Quote inside a different quote type -> literal
+			inSpace = false
+			cur.WriteByte(c)
+			quotedEmpty = false
+			continue
 		}
-		if inQuote == 0 && (c == ' ' || c == '\t' || c == '\r' || c == '\n') {
+		// Not inside a quote.
+		if inSpace && (c == '"' || c == '\'') {
+			// A quote at the START of a token opens a quoted region.
+			inQuote = c
+			quotedEmpty = true // will emit empty if no content before closing
+			continue
+		}
+		if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
 			if !inSpace && cur.Len() > 0 {
 				fields = append(fields, cur.String())
 				cur.Reset()
@@ -109,9 +114,13 @@ func splitArgs(s string) []string {
 			}
 			continue
 		}
+		// A quote that arrives mid-token is a LITERAL byte, not a boundary.
+		// This is what preserves byte-for-byte the EDITOR commands that contain
+		// an embedded quote — a path like C:\a\b"c.exe — instead of silently
+		// deleting the quote and corrupting the path handed to exec.Command.
 		inSpace = false
 		cur.WriteByte(c)
-		quotedEmpty = false // we saw content inside the quote
+		quotedEmpty = false
 	}
 	// Handle unclosed quote at end: treat the opening quote as literal.
 	if inQuote != 0 {
