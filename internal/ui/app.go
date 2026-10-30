@@ -347,9 +347,10 @@ func (a *App) clearHotlist() {
 	})
 }
 
-// showCommandsMenu opens the Commands submenu (stub for now).
+// showCommandsMenu opens the Commands submenu with sync/compare.
 func (a *App) showCommandsMenu() {
-	a.ShowMessageDialog("Commands", "Copy  F5\nMove  F6\nRename  Shift+F6\nDuplicate  Shift+F5\nDelete  F8\nMake Dir  F7\n\nCompare Dirs  (not in v1)\nSync Dirs  (not in v1)\nFind File  (not in v1)\nMulti-Rename  (not in v1)", nil)
+	a.closeTopDialog()
+	a.syncDialog()
 }
 
 // showDriveMenu opens the Drive submenu (stub for now).

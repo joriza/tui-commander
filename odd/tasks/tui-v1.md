@@ -115,6 +115,47 @@ New for v1:
       hotlist, directory comparison/sync, find file, mask multi-rename, viewer
       hex/wrap/search modes.
 
+### Directory Comparison/Sync — Detailed Spec (Shift+F2)
+
+**Goal**: Compare two directory trees (left panel vs right panel) and allow
+synchronization with user confirmation before any write.
+
+**Modes**:
+- **Real sync** (bidireccional): copy newer/missing files both ways; user
+  decides per conflict (newer wins, or manual).
+- **Mirror mode** (unidireccional, source → target): target becomes exact
+  replica of source. Source has priority; files only in target are deleted;
+  files different in target are overwritten; missing files are copied.
+
+**Behavior**:
+1. Trigger: Shift+F2 (Commands menu → Compare Dirs).
+2. Compare: recursive walk of both trees (respecting symlink policy:
+   never follow). Compare by name + size + mtime.
+3. Classify each entry:
+   - Only in left
+   - Only in right
+   - Both, same (size+mtime match)
+   - Both, different (size or mtime differ)
+   - Both, conflict (newer on both sides — real sync only)
+4. Present results in a modal dialog with a list showing each entry,
+   its classification, and proposed action.
+5. User reviews and can toggle actions (copy L→R, copy R→L, delete,
+   skip). Default actions per mode:
+   - Real sync: copy newer→older, skip same, ask on conflict.
+   - Mirror: copy L→R for missing/newer in L; delete R-only; overwrite R if different.
+6. User confirms (OK) → execute with progress modal; Esc/Cancel → abort.
+7. Post-sync: both panels refreshed.
+
+**Symlink policy**: same as copy/move/delete — never follow; links are
+compared as links (target path), not their targets.
+
+**Long paths**: supported (Go runtime handles it).
+
+**Hidden/readonly**: included in comparison; readonly on target handled
+by removePath (clears attribute).
+
+**Priority**: High — removes last reason to open Explorer for folder sync.
+
 ### Tier C — platform and delivery
 
 - [ ] T6: Recycle bin on Linux via the XDG trash spec, removing the documented
