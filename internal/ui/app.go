@@ -17,16 +17,18 @@ import (
 // The UI layer performs no filesystem logic; all panel state comes
 // from core.Panel.
 type App struct {
-	leftPanel    *core.Panel
-	rightPanel   *core.Panel
-	leftView     *tview.TextView
-	rightView    *tview.TextView
-	focusIndex   int // 0 = left panel, 1 = right panel
-	tviewApp     *tview.Application
-	keyBar       *tview.TextView
-	pages        *tview.Pages
-	dialogStack  []string
-	activeCancel context.CancelFunc
+	leftPanel       *core.Panel
+	rightPanel      *core.Panel
+	leftView        *tview.TextView
+	rightView       *tview.TextView
+	focusIndex      int // 0 = left panel, 1 = right panel
+	tviewApp        *tview.Application
+	keyBar          *tview.TextView
+	pages           *tview.Pages
+	dialogStack     []string
+	activeCancel    context.CancelFunc
+	operationCancel map[string]context.CancelFunc
+	dialogSeq       int
 
 	// stopApp halts the application. A seam so tests can observe quitting
 	// without running the tview event loop; NewApp wires tviewApp.Stop.
@@ -45,10 +47,11 @@ type App struct {
 // NewApp creates a new dual-panel App with the given panels.
 func NewApp(left, right *core.Panel) *App {
 	app := &App{
-		leftPanel:  left,
-		rightPanel: right,
-		focusIndex: 0,
-		tviewApp:   tview.NewApplication(),
+		leftPanel:       left,
+		rightPanel:      right,
+		focusIndex:      0,
+		tviewApp:        tview.NewApplication(),
+		operationCancel: make(map[string]context.CancelFunc),
 	}
 	app.stopApp = app.tviewApp.Stop
 	return app
@@ -71,14 +74,29 @@ const quitDialogTitle = "Quit"
 // confirmQuit opens the quit confirmation dialog (default answer No), so
 // quitting is always a deliberate act. It may stack on top of any open
 // dialog; opening it twice is a no-op.
+// If an operation is in progress, the dialog warns the user and offers
+// to cancel the operation instead of quitting immediately.
 func (a *App) confirmQuit() {
 	for _, name := range a.dialogStack {
-		if name == quitDialogTitle {
+		if strings.HasPrefix(name, quitDialogTitle) {
 			return
 		}
 	}
-	a.ShowConfirmDialog(quitDialogTitle, "Quit tui-commander?", "Quit", "No", true, func(confirmed bool) {
+
+	message := "Quit tui-commander?"
+	hasActiveOp := len(a.operationCancel) > 0
+	if hasActiveOp {
+		message = "An operation is in progress. Quit anyway? (Cancels the operation.)"
+	}
+	a.ShowConfirmDialog(quitDialogTitle, message, "Quit", "No", true, func(confirmed bool) {
 		if confirmed {
+			if hasActiveOp {
+				// Cancel all in-flight operations
+				for _, cancel := range a.operationCancel {
+					cancel()
+				}
+				clear(a.operationCancel)
+			}
 			a.stopApp()
 		}
 	})
@@ -273,6 +291,15 @@ func formatSize(size int64) string {
 	return fmt.Sprintf("%.1f%cB", float64(size)/float64(div), "KMGT"[exp])
 }
 
+// uniqueDialogName returns a unique page name for a dialog by appending
+// a sequence number to the base title. This prevents page name collisions
+// when multiple dialogs with the same title are opened (e.g. multiple
+// error dialogs).
+func (a *App) uniqueDialogName(base string) string {
+	a.dialogSeq++
+	return fmt.Sprintf("%s#%d", base, a.dialogSeq)
+}
+
 // handleKey processes global key events for navigation and focus switching.
 // While the pager is open it owns the keyboard: Esc/F3/F10 close it and all
 // other keys (scrolling included) go to the pager. When a dialog is open, only
@@ -289,10 +316,19 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 	if len(a.dialogStack) > 0 {
 		switch {
 		case event.Key() == tcell.KeyEscape:
+			if len(a.dialogStack) == 0 {
+				return nil
+			}
+			// Capture the dialog being closed BEFORE popping it: only the
+			// operation's own progress dialog may cancel the running operation.
+			// Esc on any other dialog (e.g. the quit confirmation stacked over a
+			// progress dialog) dismisses that dialog alone and leaves the
+			// in-flight copy/move/delete running.
+			name := a.dialogStack[len(a.dialogStack)-1]
 			a.closeTopDialog()
-			if a.activeCancel != nil {
-				a.activeCancel()
-				a.activeCancel = nil
+			if cancel, ok := a.operationCancel[name]; ok {
+				cancel()
+				delete(a.operationCancel, name)
 			}
 			return nil
 
@@ -734,6 +770,10 @@ func (a *App) runDelete(panel *core.Panel, entries []core.Entry) {
 
 	progressTitle := opLabel("Deleting", entries[0].Name, len(entries))
 	updateProgress, closeProgress := a.ShowProgressDialog(progressTitle)
+	// Bind the cancel func to the progress dialog's own page name so that
+	// Esc dismisses only THAT dialog's operation. Esc on any other dialog
+	// (e.g. the quit confirmation stacked on top) leaves this running.
+	a.operationCancel[progressTitle] = cancel
 
 	runner.
 		OnProgress(func(currentName string, fileBytes, fileSize int64, done, total int, doneBytes, totalBytes int64, eta ProgressETA) {
@@ -741,6 +781,7 @@ func (a *App) runDelete(panel *core.Panel, entries []core.Entry) {
 		}).
 		OnDone(func(result OperationResult) {
 			a.activeCancel = nil
+			delete(a.operationCancel, progressTitle)
 			closeProgress()
 			// Reread the focused panel.
 			if err := panel.Load(panel.CurrentPath()); err != nil {
@@ -1008,6 +1049,7 @@ func (a *App) runCopy(sourcePanel *core.Panel, sources []core.Entry, dest string
 
 	progressTitle := opLabel("Copying", sources[0].Name, len(sources))
 	updateProgress, closeProgress := a.ShowProgressDialog(progressTitle)
+	a.operationCancel[progressTitle] = cancel
 
 	runner.
 		OnProgress(func(currentName string, fileBytes, fileSize int64, done, total int, doneBytes, totalBytes int64, eta ProgressETA) {
@@ -1015,6 +1057,7 @@ func (a *App) runCopy(sourcePanel *core.Panel, sources []core.Entry, dest string
 		}).
 		OnDone(func(result OperationResult) {
 			a.activeCancel = nil
+			delete(a.operationCancel, progressTitle)
 			closeProgress()
 			// Reread the other panel (destination).
 			other := a.otherPanel(sourcePanel)
@@ -1190,6 +1233,7 @@ func (a *App) runMoveQueue(sourcePanel *core.Panel, sources []core.Entry, dest s
 
 	progressTitle := opLabel("Moving", sources[0].Name, len(sources))
 	updateProgress, closeProgress := a.ShowProgressDialog(progressTitle)
+	a.operationCancel[progressTitle] = cancel
 
 	runner.
 		OnProgress(func(currentName string, fileBytes, fileSize int64, done, total int, doneBytes, totalBytes int64, eta ProgressETA) {
@@ -1197,6 +1241,7 @@ func (a *App) runMoveQueue(sourcePanel *core.Panel, sources []core.Entry, dest s
 		}).
 		OnDone(func(result OperationResult) {
 			a.activeCancel = nil
+			delete(a.operationCancel, progressTitle)
 			closeProgress()
 			// Reread both panels.
 			if err := sourcePanel.Load(sourcePanel.CurrentPath()); err != nil {

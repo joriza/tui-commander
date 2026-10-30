@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
@@ -23,6 +22,7 @@ import (
 // extraRows adds additional rows to the dialog height (useful for
 // confirmation dialogs that need more vertical space).
 func (a *App) ShowFormDialog(title string, items []tview.FormItem, extraRows int, callback func(bool)) {
+	name := a.uniqueDialogName(title)
 	form := tview.NewForm()
 	for _, item := range items {
 		form.AddFormItem(item)
@@ -31,19 +31,20 @@ func (a *App) ShowFormDialog(title string, items []tview.FormItem, extraRows int
 		SetTitle(fmt.Sprintf(" %s ", title)).
 		SetTitleAlign(tview.AlignCenter)
 	form.AddButton("OK", func() {
-		a.closeTopDialog()
+		a.closeDialog(name)
 		callback(true)
 	}).AddButton("Cancel", func() {
-		a.closeTopDialog()
+		a.closeDialog(name)
 		callback(false)
 	})
 
-	a.pages.AddPage(title, a.wrapDialog(form, len(items)+5+extraRows), true, true)
-	a.dialogStack = append(a.dialogStack, title)
+	a.pages.AddPage(name, a.wrapDialog(form, len(items)+5+extraRows), true, true)
+	a.dialogStack = append(a.dialogStack, name)
 }
 
 // ShowMessageDialog displays a modal dialog with a message and an OK button.
 func (a *App) ShowMessageDialog(title, message string, callback func()) {
+	name := a.uniqueDialogName(title)
 	textView := tview.NewTextView().
 		SetText(message).
 		SetDynamicColors(true)
@@ -51,7 +52,7 @@ func (a *App) ShowMessageDialog(title, message string, callback func()) {
 	form := tview.NewForm().
 		AddFormItem(textView).
 		AddButton("OK", func() {
-			a.closeTopDialog()
+			a.closeDialog(name)
 			if callback != nil {
 				callback()
 			}
@@ -61,22 +62,25 @@ func (a *App) ShowMessageDialog(title, message string, callback func()) {
 		SetTitleAlign(tview.AlignCenter)
 
 	height := strings.Count(message, "\n") + 5
-	a.pages.AddPage(title, a.wrapDialog(form, height), true, true)
-	a.dialogStack = append(a.dialogStack, title)
+	a.pages.AddPage(name, a.wrapDialog(form, height), true, true)
+	a.dialogStack = append(a.dialogStack, name)
 }
 
 // ShowConfirmDialog displays a modal yes/no confirmation. Arrow keys and
-// Tab move the selection between the buttons; when defaultNo is true the
-// initial focus sits on the No button, so Enter declines and confirming
-// stays a deliberate act. Esc also declines via the global dialog key
-// handling. The modal is focused explicitly: without that, application
-// focus stays on the view below and the dialog never receives keys.
+// Tab move the selection between the buttons (tview wires the arrow keys
+// to Tab/Backtab on every modal button already); when defaultNo is true
+// the initial focus sits on the No button, so Enter declines and
+// confirming stays a deliberate act. Esc also declines via the global
+// dialog key handling. The modal is focused explicitly: without that,
+// application focus stays on the view below and the dialog never receives
+// keys.
 func (a *App) ShowConfirmDialog(title, message, yesLabel, noLabel string, defaultNo bool, onConfirm func(confirmed bool)) {
+	name := a.uniqueDialogName(title)
 	modal := tview.NewModal().
 		SetText(message).
 		AddButtons([]string{yesLabel, noLabel}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-			a.closeTopDialog()
+			a.closeDialog(name)
 			onConfirm(buttonIndex == 0)
 		})
 	// SetTitle is a Box method that returns *Box, so it is applied as a
@@ -88,27 +92,16 @@ func (a *App) ShowConfirmDialog(title, message, yesLabel, noLabel string, defaul
 	} else {
 		modal.SetFocus(0)
 	}
-	// tview buttons do not react to arrows on their own; map the arrow
-	// keys onto the modal's Tab/Backtab traversal so the selection moves
-	// with the arrows as well.
-	modal.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyRight, tcell.KeyDown:
-			return tcell.NewEventKey(tcell.KeyTab, 0, tcell.ModNone)
-		case tcell.KeyLeft, tcell.KeyUp:
-			return tcell.NewEventKey(tcell.KeyBacktab, 0, tcell.ModNone)
-		}
-		return event
-	})
 
-	a.pages.AddPage(title, modal, true, true)
-	a.dialogStack = append(a.dialogStack, title)
+	a.pages.AddPage(name, modal, true, true)
+	a.dialogStack = append(a.dialogStack, name)
 	a.tviewApp.SetFocus(modal)
 }
 
 // ShowErrorDialog displays a modal dialog with an error message and an OK
 // button. The message is shown in a scrollable TextView, one line per error.
 func (a *App) ShowErrorDialog(title, message string, callback func()) {
+	name := a.uniqueDialogName(title)
 	textView := tview.NewTextView().
 		SetText(message).
 		SetDynamicColors(true).
@@ -117,7 +110,7 @@ func (a *App) ShowErrorDialog(title, message string, callback func()) {
 	form := tview.NewForm().
 		AddFormItem(textView).
 		AddButton("OK", func() {
-			a.closeTopDialog()
+			a.closeDialog(name)
 			if callback != nil {
 				callback()
 			}
@@ -128,10 +121,10 @@ func (a *App) ShowErrorDialog(title, message string, callback func()) {
 
 	height := strings.Count(message, "\n") + 5
 	if height > 20 {
-		height = 20 // scrollable TextView handles the overflow
+		height = 20
 	}
-	a.pages.AddPage(title, a.wrapDialog(form, height), true, true)
-	a.dialogStack = append(a.dialogStack, title)
+	a.pages.AddPage(name, a.wrapDialog(form, height), true, true)
+	a.dialogStack = append(a.dialogStack, name)
 }
 
 // ShowListDialog displays a modal list of items. Enter on an item invokes
@@ -139,11 +132,12 @@ func (a *App) ShowErrorDialog(title, message string, callback func()) {
 // it without selecting. Titles must be unique among open dialogs (the pages
 // stack is keyed by title).
 func (a *App) ShowListDialog(title string, items []string, onSelect func(index int, text string)) {
+	name := a.uniqueDialogName(title)
 	list := tview.NewList().ShowSecondaryText(false)
 	for i, item := range items {
 		idx, text := i, item
 		list.AddItem(text, "", 0, func() {
-			a.closeTopDialog()
+			a.closeDialog(name)
 			if onSelect != nil {
 				onSelect(idx, text)
 			}
@@ -157,8 +151,8 @@ func (a *App) ShowListDialog(title string, items []string, onSelect func(index i
 	if height > 18 {
 		height = 18
 	}
-	a.pages.AddPage(title, a.wrapDialog(list, height), true, true)
-	a.dialogStack = append(a.dialogStack, title)
+	a.pages.AddPage(name, a.wrapDialog(list, height), true, true)
+	a.dialogStack = append(a.dialogStack, name)
 }
 
 // ShowProgressDialog displays a modal progress dialog with dual
@@ -201,7 +195,11 @@ func (a *App) ShowProgressDialog(title string) (updateProgress func(currentName 
 	}
 
 	closeDialog = func() {
-		a.closeTopDialog()
+		// Close by name, not by stack top: OnDone fires from the operation
+		// runner, which may run after the user stacked the quit confirmation
+		// on top of this progress dialog. closeTopDialog would then pop the
+		// quit dialog and leave this progress page dangling (HIGH-1).
+		a.closeDialog(title)
 	}
 
 	return updateProgress, closeDialog
@@ -242,16 +240,32 @@ func (a *App) wrapDialog(content tview.Primitive, height int) tview.Primitive {
 		AddItem(nil, 0, 1, false)
 }
 
+// closeDialog removes the named dialog page and its stack entry
+// wherever it sits in the stack, then restores keyboard focus. Closing by
+// name is what makes it safe for one dialog to be stacked over another:
+// an operation's OnDone callback closes its own progress dialog even when
+// the user has since opened the quit confirmation on top of it. A name not
+// on the stack is a no-op (double-close safety).
+func (a *App) closeDialog(name string) {
+	for i, n := range a.dialogStack {
+		if n == name {
+			a.dialogStack = append(a.dialogStack[:i], a.dialogStack[i+1:]...)
+			a.pages.RemovePage(name)
+			a.restoreFocus()
+			return
+		}
+	}
+}
+
 // closeTopDialog removes the topmost dialog page from the stack and
-// restores keyboard focus (see restoreFocus).
+// restores keyboard focus (see restoreFocus). It is only correct when the
+// dialog being closed is guaranteed to be on top of the stack; prefer
+// closeDialog(name) for any dialog that may be buried.
 func (a *App) closeTopDialog() {
 	if len(a.dialogStack) == 0 {
 		return
 	}
-	name := a.dialogStack[len(a.dialogStack)-1]
-	a.dialogStack = a.dialogStack[:len(a.dialogStack)-1]
-	a.pages.RemovePage(name)
-	a.restoreFocus()
+	a.closeDialog(a.dialogStack[len(a.dialogStack)-1])
 }
 
 // restoreFocus hands keyboard focus back to the frontmost surviving
