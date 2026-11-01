@@ -96,11 +96,11 @@ func (a *App) multirenameDialog() {
 		}
 
 		opts := core.MultiRenameOptions{
-			Search:        searchInput.GetText(),
-			Replace:       replaceInput.GetText(),
-			UseRegex:      useRegex.IsChecked(),
-			Uppercase:     uppercase.IsChecked(),
-			Lowercase:     lowercase.IsChecked(),
+			Search:    searchInput.GetText(),
+			Replace:   replaceInput.GetText(),
+			UseRegex:  useRegex.IsChecked(),
+			Uppercase: uppercase.IsChecked(),
+			Lowercase: lowercase.IsChecked(),
 		}
 
 		// Parse counter options
@@ -218,11 +218,11 @@ func (a *App) executeMultiRename(pattern, search, replace string, useRegex, uppe
 	counterStart, counterStep, counterDigits string) {
 
 	opts := core.MultiRenameOptions{
-		Search:       search,
-		Replace:      replace,
-		UseRegex:     useRegex,
-		Uppercase:    uppercase,
-		Lowercase:    lowercase,
+		Search:    search,
+		Replace:   replace,
+		UseRegex:  useRegex,
+		Uppercase: uppercase,
+		Lowercase: lowercase,
 	}
 
 	if v, err := strconv.Atoi(counterStart); err == nil {

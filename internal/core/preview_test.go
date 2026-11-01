@@ -144,16 +144,17 @@ func TestReadTextPreviewMissingFile(t *testing.T) {
 	}
 }
 
-func TestReadTextPreviewPreservesCRLF(t *testing.T) {
+func TestReadTextPreviewNormalizesCRLF(t *testing.T) {
 	const content = "line1\r\nline2\r\n"
+	want := "line1\nline2\n"
 	path := writePreviewFile(t, "crlf.txt", []byte(content))
 
 	got, err := ReadTextPreview(path, 1<<20)
 	if err != nil {
 		t.Fatalf("ReadTextPreview returned error: %v", err)
 	}
-	if got.Text != content {
-		t.Fatalf("Text = %q, want %q", got.Text, content)
+	if got.Text != want {
+		t.Fatalf("Text = %q, want %q (CRLF should be normalized to LF)", got.Text, want)
 	}
 }
 

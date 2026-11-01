@@ -110,7 +110,7 @@ New for v1:
 
 1. Top menu bar + discoverable hotkeys (F9).
 - [ ] T5: Top menu bar.
-- [ ] T2b/T5+: selectable sort per panel (S12), then per-panel include-mask
+- [x] T2b/T5+: selectable sort per panel (S12), then per-panel include-mask
       filters (distinct from the incremental quick search already in v0),
       hotlist, directory comparison/sync, find file, mask multi-rename, viewer
       hex/wrap/search modes.

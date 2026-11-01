@@ -25,14 +25,14 @@ type MultiRenameOptions struct {
 	// [P] - parent path
 	// [Z] - file size in bytes
 	// Search/Replace: if Search is set, replaces occurrences in the name
-	Search       string
-	Replace      string
-	UseRegex     bool      // Use regex for search/replace
-	CounterStart int       // Starting counter value
-	CounterStep  int       // Counter increment
-	CounterDigits int      // Number of digits for counter (0 = auto)
-	Uppercase    bool      // Convert result to uppercase
-	Lowercase    bool      // Convert result to lowercase
+	Search        string
+	Replace       string
+	UseRegex      bool // Use regex for search/replace
+	CounterStart  int  // Starting counter value
+	CounterStep   int  // Counter increment
+	CounterDigits int  // Number of digits for counter (0 = auto)
+	Uppercase     bool // Convert result to uppercase
+	Lowercase     bool // Convert result to lowercase
 }
 
 // MultiRenameResult represents a single rename operation.
@@ -47,12 +47,12 @@ type MultiRenameResult struct {
 // DefaultMultiRenameOptions returns sensible defaults for multi-rename.
 func DefaultMultiRenameOptions() MultiRenameOptions {
 	return MultiRenameOptions{
-		CounterStart:   1,
-		CounterStep:    1,
-		CounterDigits:  3,
-		UseRegex:       false,
-		Uppercase:      false,
-		Lowercase:      false,
+		CounterStart:  1,
+		CounterStep:   1,
+		CounterDigits: 3,
+		UseRegex:      false,
+		Uppercase:     false,
+		Lowercase:     false,
 	}
 }
 

@@ -32,6 +32,13 @@ type TextPreview struct {
 // (lines are split on '\n' only, so tabs and CRLF endings survive as-is).
 // Binary samples -- a NUL byte, or more than 30% non-text control bytes --
 // yield Binary true with an empty Text.
+// normalizeLineEndings converts CRLF and CR line endings to LF.
+func normalizeLineEndings(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\r", "\n")
+	return text
+}
+
 func ReadTextPreview(path string, maxBytes int64) (TextPreview, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -63,7 +70,7 @@ func ReadTextPreview(path string, maxBytes int64) (TextPreview, error) {
 		preview.Binary = true
 		return preview, nil
 	}
-	preview.Text = capPreviewLines(string(data))
+	preview.Text = capPreviewLines(normalizeLineEndings(string(data)))
 	return preview, nil
 }
 

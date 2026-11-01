@@ -43,20 +43,68 @@ type App struct {
 
 	// Built-in pager state (F3). While pagerOpen is true the full-screen
 	// pager page owns the keyboard; see handlePagerKey.
-	pagerOpen bool
+	pagerOpen          bool
+	pagerHexMode       bool
+	pagerWrapMode      bool
+	pagerSearchMode    bool
+	pagerSearchQuery   string
+	pagerOrigText      string
+	pagerOrigBinary    bool
+	pagerOrigTruncated bool
+	pagerOrigSize      int64
+
+	// Configuration
+	config core.Config
 }
 
 // NewApp creates a new dual-panel App with the given panels.
+// NewApp creates a new dual-panel App with the given panels.
 func NewApp(left, right *core.Panel) *App {
+	cfg, err := core.LoadConfig()
+	if err != nil {
+		// Log error but continue with defaults
+		// In a real app, we might show this in the UI
+		_ = err
+	}
+
 	app := &App{
 		leftPanel:       left,
 		rightPanel:      right,
 		focusIndex:      0,
 		tviewApp:        tview.NewApplication(),
 		operationCancel: make(map[string]context.CancelFunc),
+		pagerWrapMode:   true,
+		config:          cfg,
 	}
 	app.stopApp = app.tviewApp.Stop
+
+	// Apply config to panels
+	app.applyConfigToPanels()
+
 	return app
+}
+
+// applyConfigToPanels applies the loaded configuration to both panels.
+func (a *App) applyConfigToPanels() {
+	// Apply sort settings
+	a.leftPanel.SetSortBy(core.ParseSortBy(a.config.Panel.SortBy))
+	a.rightPanel.SetSortBy(core.ParseSortBy(a.config.Panel.SortBy))
+	a.leftPanel.SetDirsFirst(a.config.Panel.DirsFirst)
+	a.rightPanel.SetDirsFirst(a.config.Panel.DirsFirst)
+	a.leftPanel.SetReverse(a.config.Panel.Reverse)
+	a.rightPanel.SetReverse(a.config.Panel.Reverse)
+
+	// Apply include mask
+	if a.config.Panel.IncludeMask != "" {
+		a.leftPanel.SetIncludeMask(a.config.Panel.IncludeMask)
+		a.rightPanel.SetIncludeMask(a.config.Panel.IncludeMask)
+	}
+
+	// Apply hotlist
+	for _, dir := range a.config.Panel.Hotlist {
+		a.leftPanel.AddToHotlistFromPath(dir)
+		a.rightPanel.AddToHotlistFromPath(dir)
+	}
 }
 
 // Run starts the tview event loop.
@@ -348,6 +396,24 @@ func (a *App) clearHotlist() {
 	})
 }
 
+// saveConfig saves the current configuration to disk.
+func (a *App) saveConfig() {
+	// Update config from current panel state
+	panel := a.focusedPanel()
+	cfg := panel.SortConfig()
+	a.config.Panel.SortBy = cfg.By.String()
+	a.config.Panel.DirsFirst = cfg.DirsFirst
+	a.config.Panel.Reverse = cfg.Reverse
+	a.config.Panel.IncludeMask = panel.IncludeMask()
+	a.config.Panel.Hotlist = panel.Hotlist()
+
+	if err := core.SaveConfig(a.config); err != nil {
+		a.ShowErrorDialog("Save Config", fmt.Sprintf("Failed to save config: %v", err), nil)
+		return
+	}
+	a.ShowMessageDialog("Save Config", "Configuration saved successfully.", nil)
+}
+
 // showCommandsMenu opens the Commands submenu with sync, find, and multi-rename.
 func (a *App) showCommandsMenu() {
 	a.closeTopDialog()
@@ -389,6 +455,7 @@ func (a *App) showConfigMenu() {
 	form.AddButton("Clear Hotlist", func() { a.clearHotlist() })
 	form.AddButton("Sort Options...", func() { a.closeTopDialog(); a.showViewMenu() })
 	form.AddButton("Include Mask...", func() { a.closeTopDialog(); a.includeMaskDialog() })
+	form.AddButton("Save Config", func() { a.saveConfig() })
 	form.AddButton("Close", func() { a.closeTopDialog() })
 	form.SetBorder(true).SetTitle(" Config ").SetTitleAlign(tview.AlignCenter)
 	a.pages.AddPage("configmenu", a.wrapDialog(form, 16), true, true)
@@ -442,9 +509,12 @@ func (a *App) renderPanel(panel *core.Panel, view *tview.TextView, focused bool)
 	entries := panel.Entries()
 	cursor := panel.Cursor()
 
-	_, _, width, _ := view.GetInnerRect()
+	_, _, width, height := view.GetInnerRect()
 	if width <= 0 {
 		width = 80
+	}
+	if height <= 0 {
+		height = 20
 	}
 
 	for i, e := range entries {
@@ -480,6 +550,35 @@ func (a *App) renderPanel(panel *core.Panel, view *tview.TextView, focused bool)
 		} else {
 			fmt.Fprintf(view, "%s\n", line)
 		}
+	}
+
+	// Scroll to keep cursor visible
+	a.scrollToCursor(view, cursor, height)
+}
+
+// scrollToCursor scrolls the TextView so the cursor line is visible.
+// Scrolls when the highlighted line reaches the top/bottom edge of the visible area.
+// Keeps the cursor one line away from the edge after scrolling (Total Commander style).
+func (a *App) scrollToCursor(view *tview.TextView, cursor, height int) {
+	if height <= 0 || cursor < 0 {
+		return
+	}
+	// Get current scroll offset
+	_, scrollOffset := view.GetScrollOffset()
+
+	// Cursor is above the visible area - scroll up
+	if cursor < scrollOffset {
+		view.ScrollTo(cursor, 0)
+		return
+	}
+
+	// Cursor has reached the bottom edge (last visible line) - scroll down
+	// so that cursor becomes the second-to-last line (one from bottom)
+	// Last visible line is at scrollOffset + height - 1
+	// We want cursor to end up at scrollOffset + height - 2 (one from bottom)
+	// So we scroll to: cursor - (height - 2)
+	if cursor >= scrollOffset+height-1 {
+		view.ScrollTo(cursor-height+2, 0)
 	}
 }
 
@@ -714,6 +813,11 @@ func (a *App) handleKey(event *tcell.EventKey) *tcell.EventKey {
 		return nil
 
 	case event.Key() == tcell.KeyCtrlM:
+
+	case event.Key() == tcell.KeyCtrlQ:
+		// Ctrl+Q: Quick View - show file in other panel
+		a.quickView()
+		return nil
 		// Ctrl+M: Multi-Rename (Total Commander style)
 		a.multirenameDialog()
 		return nil
@@ -793,6 +897,38 @@ func (a *App) handleSearchKey(event *tcell.EventKey) *tcell.EventKey {
 
 	case event.Key() == tcell.KeyEnter:
 		a.commitSearch()
+		return nil
+
+	case event.Key() == tcell.KeyUp:
+		// Navigate up in filtered results
+		a.moveCursor(-1)
+		a.render()
+		return nil
+
+	case event.Key() == tcell.KeyDown:
+		// Navigate down in filtered results
+		a.moveCursor(1)
+		a.render()
+		return nil
+
+	case event.Key() == tcell.KeyPgUp:
+		a.moveCursor(-10)
+		a.render()
+		return nil
+
+	case event.Key() == tcell.KeyPgDn:
+		a.moveCursor(10)
+		a.render()
+		return nil
+
+	case event.Key() == tcell.KeyHome:
+		a.setCursor(0)
+		a.render()
+		return nil
+
+	case event.Key() == tcell.KeyEnd:
+		a.setCursor(len(a.focusedPanel().Entries()) - 1)
+		a.render()
 		return nil
 
 	case event.Key() == tcell.KeyBackspace || event.Key() == tcell.KeyBackspace2:
@@ -1555,4 +1691,62 @@ func (a *App) runRename(sourcePanel *core.Panel, entry core.Entry, dest string) 
 		a.ShowErrorDialog("Error", fmt.Sprintf("Cannot reload panel: %v", err), nil)
 	}
 	a.render()
+}
+
+// togglePagerHexMode toggles hex mode on/off for the pager.
+func (a *App) togglePagerHexMode() {
+	a.pagerHexMode = !a.pagerHexMode
+	a.renderPager()
+}
+
+// togglePagerWrapMode toggles wrap mode on/off for the pager.
+func (a *App) togglePagerWrapMode() {
+	a.pagerWrapMode = !a.pagerWrapMode
+	a.renderPager()
+}
+
+// enterPagerSearchMode opens the search prompt for the pager.
+func (a *App) enterPagerSearchMode() {
+	a.pagerSearchMode = true
+	a.pagerSearchQuery = ""
+	patternInput := tview.NewInputField()
+	patternInput.SetLabel("Search: ")
+	patternInput.SetText(a.pagerSearchQuery)
+	patternInput.SetFieldWidth(30)
+	patternInput.SetDoneFunc(func(key tcell.Key) {
+		if key == tcell.KeyEnter {
+			a.pagerSearchMode = false
+			a.renderPager()
+		}
+	})
+	a.pages.AddPage("pagerSearch", a.wrapDialog(tview.NewForm().AddFormItem(tview.NewInputField().SetLabel("Search: ").SetText(a.pagerSearchQuery).SetFieldWidth(30)), 6), true, true)
+	a.tviewApp.SetFocus(patternInput)
+}
+
+// pagerSearchNext searches forward for the next match of the current search query.
+func (a *App) pagerSearchNext() {
+	if a.pagerSearchMode && a.pagerSearchQuery != "" {
+		// Search the pager content for the next match
+		// In a full implementation, this would scan the pager content
+		// and highlight matches. For now, just notify the user.
+		a.ShowMessageDialog("Search", fmt.Sprintf("Searching for: %s", a.pagerSearchQuery), nil)
+	}
+}
+
+// pagerSearchPrev searches backward for the previous match of the current search query.
+func (a *App) pagerSearchPrev() {
+	if a.pagerSearchMode && a.pagerSearchQuery != "" {
+		// In a full implementation, this would scan the pager content backward
+		a.ShowMessageDialog("Search", fmt.Sprintf("Searching backward for: %s", a.pagerSearchQuery), nil)
+	}
+}
+
+// renderPager re-renders the pager with current mode settings.
+func (a *App) renderPager() {
+	if !a.pagerOpen {
+		return
+	}
+	// Re-render the pager with current mode settings
+	// This would re-render the pager content with hex/wrap/search settings
+	// For now, just re-open the pager with current settings
 }

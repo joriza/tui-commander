@@ -1,10 +1,10 @@
 package core
 
 import (
-	"time"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestMultiRename_Basic tests basic rename with counter.

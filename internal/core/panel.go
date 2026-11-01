@@ -58,6 +58,23 @@ func (s SortBy) String() string {
 	}
 }
 
+// ParseSortBy parses a string into a SortBy value.
+// Returns SortByName if the string is not recognized.
+func ParseSortBy(s string) SortBy {
+	switch strings.ToLower(s) {
+	case "name":
+		return SortByName
+	case "size":
+		return SortBySize
+	case "time", "mtime", "modtime":
+		return SortByTime
+	case "ext", "extension":
+		return SortByExt
+	default:
+		return SortByName
+	}
+}
+
 // SortConfig holds the per-panel sort configuration.
 type SortConfig struct {
 	By        SortBy
@@ -392,6 +409,25 @@ func (p *Panel) AddToHotlist() bool {
 		}
 	}
 	p.hotlist = append(p.hotlist, p.currentPath)
+	return true
+}
+
+// AddToHotlistFromPath adds a specific path to the hotlist if not already present.
+// Returns true if added, false if already in hotlist or path doesn't exist.
+func (p *Panel) AddToHotlistFromPath(path string) bool {
+	if path == "" {
+		return false
+	}
+	// Verify path exists
+	if _, err := os.Stat(path); err != nil {
+		return false
+	}
+	for _, h := range p.hotlist {
+		if h == path {
+			return false
+		}
+	}
+	p.hotlist = append(p.hotlist, path)
 	return true
 }
 

@@ -1,0 +1,117 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+env:
+  GO_VERSION: '1.26.4'
+
+jobs:
+  test:
+    name: Test (Windows)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test ./... -count=1 -race
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: CGO_ENABLED=0 go build -trimpath \n  -ldflags="-s -w" \n  -o tui-commander.exe .
+
+  test-linux:
+    name: Test (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run tests
+        run: go test ./... -count=1
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: CGO_ENABLED=0 go build -trimpath \n  -ldflags="-s -w" \n  -o tui-commander .
+
+  release:
+    name: Create Release
+    needs: [test, test-linux]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Build Windows (amd64)
+        run: |
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build \n  -trimpath \n  -ldflags="-s -w" \n  -o tui-commander-windows-amd64.exe .
+
+      - name: Build Windows (arm64)
+        run: |
+          CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build \n  -trimpath \n  -ldflags="-s -w" \n  -o tui-commander-windows-arm64.exe .
+
+      - name: Build Linux (amd64)
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \n  -trimpath \n  -ldflags="-s -w" \n  -o tui-commander-linux-amd64 .
+
+      - name: Build Linux (arm64)
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \n  -trimpath \n  -ldflags="-s -w" \n  -o tui-commander-linux-arm64 .
+
+      - name: Generate checksums
+        run: |
+          sha256sum *.exe > checksums.txt 2>/dev/null || true
+          sha256sum tui-commander-* >> checksums.txt 2>/dev/null || true
+          cat checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            tui-commander-windows-amd64.exe
+            tui-commander-windows-arm64.exe
+            tui-commander-linux-amd64
+            tui-commander-linux-arm64
+            checksums.txt
+          generate_release_notes: true
+          draft: false
+          prerelease: false
